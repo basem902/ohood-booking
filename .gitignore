@@ -1,0 +1,8 @@
+# أدوات محلية خاصة بالمحرّر
+.claude/
+
+# ملفات نظام التشغيل
+Thumbs.db
+desktop.ini
+.DS_Store
+*.log

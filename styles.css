@@ -1,0 +1,524 @@
+/* ===== المتغيرات والأساسيات ===== */
+:root {
+  --bg: #f5f4fb;
+  --card: #ffffff;
+  --primary: #7c3aed;
+  --primary-d: #6d28d9;
+  --primary-l: #ede9fe;
+  --accent: #ec4899;
+  --text: #1f2333;
+  --muted: #6b7280;
+  --border: #e9e7f3;
+  --warn-bg: #fff7ed;
+  --warn-bd: #f59e0b;
+  --warn-tx: #9a3412;
+  --danger: #ef4444;
+  --danger-bg: #fef2f2;
+  --ok: #10b981;
+  --shadow: 0 4px 16px rgba(31, 35, 51, 0.06);
+  --shadow-lg: 0 12px 32px rgba(31, 35, 51, 0.14);
+  --radius: 16px;
+}
+
+* { box-sizing: border-box; }
+
+/* ضمان عمل خاصية hidden حتى مع وجود display على الكلاس */
+[hidden] { display: none !important; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: "Segoe UI", Tahoma, "Tajawal", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 700; }
+small { font-size: .7em; font-weight: 500; }
+
+/* ===== الشريط العلوي ===== */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px clamp(14px, 4vw, 32px);
+  background: linear-gradient(120deg, var(--primary), var(--accent));
+  color: #fff;
+  box-shadow: var(--shadow);
+  flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-logo {
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  background: rgba(255,255,255,.2);
+  border: 2px solid rgba(255,255,255,.4);
+  border-radius: 12px;
+  font-size: 24px; font-weight: 700;
+}
+.brand-text h1 { font-size: 19px; line-height: 1.2; }
+.brand-sub { font-size: 12px; opacity: .85; }
+.topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ===== الأزرار ===== */
+.btn {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: transform .08s, box-shadow .15s, background .15s, opacity .15s;
+  white-space: nowrap;
+}
+.btn:active { transform: translateY(1px); }
+.btn-sm { padding: 7px 12px; font-size: 13px; }
+.btn-primary { background: var(--primary); color: #fff; box-shadow: 0 4px 12px rgba(124,58,237,.3); }
+.btn-primary:hover { background: var(--primary-d); }
+.btn-ghost { background: rgba(255,255,255,.16); color: #fff; }
+.btn-ghost:hover { background: rgba(255,255,255,.28); }
+.list-card .btn-ghost, .modal .btn-ghost { background: var(--primary-l); color: var(--primary-d); }
+.list-card .btn-ghost:hover, .modal .btn-ghost:hover { background: #e0d8fc; }
+.btn-danger { background: var(--danger-bg); color: var(--danger); }
+.btn-danger:hover { background: #fde0e0; }
+.icon-btn {
+  background: transparent; border: none; cursor: pointer;
+  font-size: 18px; color: var(--muted); padding: 6px; border-radius: 8px;
+}
+.icon-btn:hover { background: var(--bg); }
+
+/* ===== الحاوية والتخطيط ===== */
+.container { max-width: 1200px; margin: 0 auto; padding: clamp(14px, 3vw, 28px); }
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.stat-label { font-size: 13px; color: var(--muted); }
+.stat-value { font-size: 28px; font-weight: 700; color: var(--primary-d); }
+.stat-sub { font-size: 12px; font-weight: 600; color: var(--danger); }
+.stat-sub:empty { display: none; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  padding: 20px;
+}
+.card-title { font-size: 18px; margin-bottom: 16px; color: var(--text); }
+.form-card { position: sticky; top: 84px; }
+
+/* ===== الحقول ===== */
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field > span { font-size: 13.5px; font-weight: 600; color: #4b4f63; }
+.req { color: var(--danger); }
+.field input, .field select, .field textarea {
+  font-family: inherit;
+  font-size: 15px;
+  padding: 11px 13px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: #fbfbfe;
+  color: var(--text);
+  transition: border-color .15s, box-shadow .15s;
+  width: 100%;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-l);
+  background: #fff;
+}
+.field textarea { resize: vertical; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-narrow { }
+.form-actions { display: flex; gap: 10px; margin-top: 6px; }
+.form-actions .btn-primary { flex: 1; }
+
+/* ===== تحذير نفس اليوم ===== */
+.warning {
+  background: var(--warn-bg);
+  border: 1.5px solid var(--warn-bd);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 13.5px;
+  color: var(--warn-tx);
+  animation: pop .2s ease;
+}
+.warning.conflict { background: var(--danger-bg); border-color: var(--danger); color: #b91c1c; }
+.warning b { display: block; margin-bottom: 6px; font-size: 14px; }
+.warning ul { margin: 0; list-style: none; padding-inline-start: 0; }
+.warning li {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0; border-top: 1px dashed rgba(0,0,0,.1);
+}
+.warning li:first-child { border-top: none; }
+.warning .wtime { font-weight: 700; background: rgba(255,255,255,.6); padding: 1px 8px; border-radius: 6px; }
+@keyframes pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* ===== شريط الأدوات ===== */
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.search {
+  flex: 1; min-width: 180px;
+  font-family: inherit; font-size: 15px;
+  padding: 10px 13px; border: 1.5px solid var(--border);
+  border-radius: 10px; background: #fbfbfe;
+}
+.search:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-l); }
+.filter {
+  font-family: inherit; font-size: 14px;
+  padding: 10px 12px; border: 1.5px solid var(--border);
+  border-radius: 10px; background: #fbfbfe; cursor: pointer;
+}
+.list-meta { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+
+/* ===== الجدول ===== */
+.table-wrap { overflow-x: auto; }
+.bookings-table { width: 100%; border-collapse: collapse; }
+.bookings-table th {
+  text-align: right; font-size: 12.5px; color: var(--muted);
+  font-weight: 600; padding: 8px 10px; border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.bookings-table td { padding: 12px 10px; border-bottom: 1px solid var(--border); font-size: 14px; vertical-align: middle; }
+.bookings-table tbody tr { transition: background .12s; }
+.bookings-table tbody tr:hover { background: #faf9ff; }
+.cell-name { font-weight: 600; }
+.cell-sub { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+.col-actions { width: 1%; }
+.row-actions { display: flex; gap: 6px; }
+.row-actions button {
+  border: none; cursor: pointer; border-radius: 8px;
+  width: 32px; height: 32px; font-size: 15px;
+  display: grid; place-items: center; background: var(--bg); transition: background .12s;
+}
+.row-actions .a-edit:hover { background: var(--primary-l); }
+.row-actions .a-bell:hover { background: var(--warn-bg); }
+.row-actions .a-wa:hover { background: #dcfce7; }
+.row-actions .a-del:hover { background: var(--danger-bg); }
+tr.cancelled { opacity: .55; }
+tr.cancelled .cell-name { text-decoration: line-through; }
+
+/* ===== شارات الحالة ===== */
+.badge {
+  display: inline-block; font-size: 12px; font-weight: 600;
+  padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+}
+.badge.confirmed { background: #dcfce7; color: #15803d; }
+.badge.pending { background: #fef9c3; color: #a16207; }
+.badge.done { background: #e0e7ff; color: #4338ca; }
+.badge.cancelled { background: #fee2e2; color: #b91c1c; }
+
+/* ===== شارات الدفع والمتبقّي (في القائمة) ===== */
+.pay-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.pay-badge {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+}
+.pay-badge.paid { background: #dcfce7; color: #15803d; }
+.pay-badge.partial { background: var(--warn-bg); color: var(--warn-tx); }
+.pay-badge.unpaid { background: #fee2e2; color: #b91c1c; }
+.pay-rem { font-size: 11.5px; font-weight: 600; color: var(--danger); }
+
+/* ===== الحالة الفارغة ===== */
+.empty { text-align: center; padding: 48px 16px; color: var(--muted); }
+.empty-emoji { font-size: 48px; margin-bottom: 8px; }
+.empty p { font-size: 17px; font-weight: 600; margin: 4px 0; color: var(--text); }
+.empty span { font-size: 13px; }
+
+/* ===== مبدّل العرض (قائمة | تقويم) ===== */
+.view-switch {
+  display: inline-flex; gap: 4px; margin-bottom: 14px;
+  background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: 12px; padding: 4px;
+}
+.view-tab {
+  font-family: inherit; font-size: 13.5px; font-weight: 600;
+  border: none; background: transparent; color: var(--muted);
+  padding: 7px 16px; border-radius: 9px; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.view-tab:hover { color: var(--primary-d); }
+.view-tab.is-active { background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(124,58,237,.25); }
+
+/* ===== شارة تصفية اليوم المحدّد ===== */
+.list-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.day-filter-chip {
+  font-family: inherit; font-size: 12.5px; font-weight: 600;
+  background: var(--primary-l); color: var(--primary-d);
+  border: 1px solid var(--primary); border-radius: 999px;
+  padding: 3px 12px; cursor: pointer; transition: background .15s;
+}
+.day-filter-chip:hover { background: #e0d8fc; }
+
+/* ===== التقويم ===== */
+.cal-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.cal-nav { display: flex; gap: 6px; }
+.cal-nav .btn { padding: 7px 12px; min-width: 38px; }
+.cal-title { font-size: 16px; font-weight: 700; color: var(--primary-d); text-align: center; flex: 1; }
+.cal-mode {
+  display: inline-flex; gap: 3px; background: var(--bg);
+  border: 1.5px solid var(--border); border-radius: 10px; padding: 3px;
+}
+.cal-mode-tab {
+  font-family: inherit; font-size: 12.5px; font-weight: 600;
+  border: none; background: transparent; color: var(--muted);
+  padding: 6px 12px; border-radius: 7px; cursor: pointer; transition: background .15s, color .15s;
+}
+.cal-mode-tab.is-active { background: var(--primary); color: #fff; }
+
+/* رؤوس الأيام */
+.cal-weekdays {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  gap: 6px; margin-bottom: 6px;
+}
+.cal-wd {
+  text-align: center; font-size: 12px; font-weight: 700;
+  color: var(--muted); padding: 4px 0;
+}
+
+/* الشبكة */
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+}
+.cal-day {
+  min-height: 92px; background: #fbfbfe;
+  border: 1.5px solid var(--border); border-radius: 12px;
+  padding: 6px; cursor: pointer; overflow: hidden;
+  display: flex; flex-direction: column; gap: 4px;
+  transition: border-color .12s, background .12s, box-shadow .12s;
+}
+.cal-day:hover { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-l); }
+.cal-grid.is-week .cal-day { min-height: 150px; }
+
+.cal-day.is-out { opacity: .45; background: var(--bg); }
+.cal-day.is-today { border-color: var(--primary); background: var(--primary-l); }
+.cal-day.is-busy { background: #fff7ed; }
+.cal-day.is-conflict { border-color: var(--danger); background: var(--danger-bg); }
+
+.cal-day-head { display: flex; align-items: center; justify-content: space-between; }
+.cal-dnum { font-size: 14px; font-weight: 700; color: var(--text); }
+.cal-day.is-today .cal-dnum {
+  background: var(--primary); color: #fff; width: 24px; height: 24px;
+  display: grid; place-items: center; border-radius: 999px; font-size: 13px;
+}
+.cal-count {
+  font-size: 11px; font-weight: 700; color: var(--primary-d);
+  background: #fff; border: 1px solid var(--border);
+  min-width: 20px; height: 20px; padding: 0 5px;
+  display: inline-grid; place-items: center; border-radius: 999px;
+}
+.cal-day.is-conflict .cal-count { color: var(--danger); border-color: var(--danger); }
+
+/* المواعيد المصغّرة داخل الخلية */
+.cal-events { display: flex; flex-direction: column; gap: 3px; min-height: 0; }
+.cal-ev {
+  display: flex; align-items: center; gap: 5px; width: 100%;
+  font-family: inherit; text-align: start; cursor: pointer;
+  border: none; border-inline-start: 3px solid var(--primary);
+  background: #fff; border-radius: 6px; padding: 2px 6px;
+  font-size: 11px; line-height: 1.4; overflow: hidden;
+  transition: background .12s;
+}
+.cal-ev:hover { background: var(--primary-l); }
+.cal-ev .ev-t { font-weight: 700; color: var(--primary-d); white-space: nowrap; }
+.cal-ev .ev-n { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-ev.confirmed { border-inline-start-color: var(--ok); }
+.cal-ev.confirmed .ev-t { color: #15803d; }
+.cal-ev.pending { border-inline-start-color: var(--warn-bd); }
+.cal-ev.pending .ev-t { color: #a16207; }
+.cal-ev.done { border-inline-start-color: #6366f1; }
+.cal-ev.done .ev-t { color: #4338ca; }
+.cal-ev.cancelled { opacity: .55; border-inline-start-color: var(--danger); }
+.cal-ev.cancelled .ev-n { text-decoration: line-through; }
+.cal-more { font-size: 10.5px; font-weight: 600; color: var(--muted); padding-inline-start: 4px; }
+
+/* وسيلة الإيضاح */
+.cal-legend {
+  display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+  margin-top: 14px; font-size: 12px; color: var(--muted);
+}
+.cal-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
+.cal-legend .dot { width: 12px; height: 12px; border-radius: 4px; display: inline-block; border: 1.5px solid transparent; }
+.cal-legend .lg-today { background: var(--primary-l); border-color: var(--primary); }
+.cal-legend .lg-busy { background: #fff7ed; border-color: var(--warn-bd); }
+.cal-legend .lg-conflict { background: var(--danger-bg); border-color: var(--danger); }
+
+/* استجابة التقويم على الشاشات الصغيرة */
+@media (max-width: 560px) {
+  .cal-day { min-height: 70px; padding: 4px; }
+  .cal-grid.is-week .cal-day { min-height: 110px; }
+  .cal-ev .ev-n { display: none; }
+  .cal-title { font-size: 14px; }
+}
+
+/* ===== النوافذ المنبثقة ===== */
+.modal {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(20,18,40,.5);
+  display: grid; place-items: center;
+  padding: 16px; backdrop-filter: blur(2px);
+}
+.modal-box {
+  background: var(--card); border-radius: 18px;
+  width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto;
+  box-shadow: var(--shadow-lg); animation: pop .2s ease;
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--card);
+}
+.modal-body { padding: 20px; }
+.modal-body hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+.modal-body h4 { margin-bottom: 4px; }
+.hint { font-size: 12.5px; color: var(--muted); margin: 4px 0 12px; }
+
+.pkg-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.pkg-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: var(--bg); border-radius: 10px;
+}
+.pkg-item .pn { flex: 1; font-weight: 600; }
+.pkg-item .pp { color: var(--muted); font-size: 13px; }
+.pkg-add { display: grid; grid-template-columns: 1fr 100px auto; gap: 8px; }
+.pkg-add input { font-family: inherit; padding: 9px 11px; border: 1.5px solid var(--border); border-radius: 9px; }
+
+/* ===== ساعات العمل (الإعدادات) ===== */
+.workdays { display: flex; flex-wrap: wrap; gap: 6px; }
+.workdays .wd {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 10px; background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; color: #4b4f63;
+  transition: background .12s, border-color .12s;
+}
+.workdays .wd span { user-select: none; }
+.workdays .wd input { width: auto; margin: 0; accent-color: var(--primary); cursor: pointer; }
+.workdays .wd:has(input:checked) { background: var(--primary-l); border-color: var(--primary); color: var(--primary-d); }
+.check-field {
+  flex-direction: row; align-items: center; gap: 8px; cursor: pointer;
+}
+.check-field input { width: auto; margin: 0; accent-color: var(--primary); cursor: pointer; }
+.check-field span { font-size: 13.5px; font-weight: 600; color: #4b4f63; }
+
+/* ===== إشعارات التذكير (الإعدادات) ===== */
+.notify-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.notify-row .btn:disabled { opacity: .6; cursor: not-allowed; }
+.notify-status { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.notify-status.ok { color: var(--ok); }
+.notify-status.warn { color: var(--warn-tx); }
+
+.backup-row { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.steps { padding-inline-start: 20px; font-size: 14px; }
+.steps li { margin-bottom: 8px; }
+
+/* ===== التقارير الشهرية ===== */
+.modal-box-wide { max-width: 560px; }
+.report-empty {
+  text-align: center; padding: 28px 12px; color: var(--muted);
+  font-size: 14px; font-weight: 600;
+}
+.report-cards {
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: 10px; margin: 14px 0 6px;
+}
+.rep-card {
+  background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: 12px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.rep-label { font-size: 12.5px; color: var(--muted); }
+.rep-value { font-size: 19px; font-weight: 700; color: var(--primary-d); }
+.rep-value.ok { color: var(--ok); }
+.rep-value.rem { color: var(--danger); }
+
+.report-h {
+  font-size: 14px; color: var(--text);
+  margin: 18px 0 10px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.report-bars { display: flex; flex-direction: column; gap: 8px; }
+.rb-row { display: grid; grid-template-columns: minmax(76px, 34%) 1fr auto; align-items: center; gap: 10px; }
+.rb-label {
+  font-size: 12.5px; font-weight: 600; color: #4b4f63;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+/* داخل صفوف الحالة: لا تقصّ الشارة */
+.rb-label .badge { overflow: visible; }
+.rb-track { background: var(--bg); border-radius: 999px; height: 12px; overflow: hidden; border: 1px solid var(--border); }
+.rb-fill {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--primary); min-width: 4px;
+  transition: width .3s ease;
+}
+.rb-fill.st-confirmed { background: var(--ok); }
+.rb-fill.st-pending { background: var(--warn-bd); }
+.rb-fill.st-done { background: #6366f1; }
+.rb-fill.st-cancelled { background: var(--danger); }
+.rb-fill.st-pkg { background: linear-gradient(90deg, var(--primary), var(--accent)); }
+.rb-val { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.rb-val small { font-size: 11px; font-weight: 600; color: var(--muted); }
+
+/* ===== التوست ===== */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: var(--text); color: #fff; padding: 12px 22px;
+  border-radius: 999px; font-size: 14px; font-weight: 600;
+  box-shadow: var(--shadow-lg); z-index: 80; animation: pop .2s ease;
+}
+.toast.ok { background: var(--ok); }
+.toast.err { background: var(--danger); }
+
+/* ===== استجابة الشاشات الصغيرة ===== */
+@media (max-width: 880px) {
+  .layout { grid-template-columns: 1fr; }
+  .form-card { position: static; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .brand-sub { display: none; }
+  .stat-value { font-size: 23px; }
+  .topbar-actions .btn { padding: 8px 10px; font-size: 13px; }
+}
+
+/* ===== الطباعة ===== */
+@media print {
+  .topbar, .form-card, .toolbar, .stats, .row-actions, .col-actions,
+  .btn, #btn-print, .modal, .toast,
+  .view-switch, #calendar-view, .day-filter-chip { display: none !important; }
+  /* اطبع القائمة دائماً حتى لو كان التقويم هو المعروض */
+  #list-view { display: block !important; }
+  body { background: #fff; }
+  .container, .layout { display: block; max-width: none; padding: 0; }
+  .list-card { box-shadow: none; border: none; padding: 0; }
+  .bookings-table th, .bookings-table td { border-color: #ccc; }
+}
