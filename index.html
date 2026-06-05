@@ -95,6 +95,7 @@
               <span>الباقة</span>
               <input type="text" id="f-package" list="packages-list" placeholder="اختر أو اكتب الباقة" />
               <datalist id="packages-list"></datalist>
+              <span id="package-hint" class="package-hint" hidden></span>
             </label>
             <label class="field field-narrow">
               <span>السعر</span>
@@ -104,14 +105,16 @@
 
           <div class="field-row">
             <label class="field field-narrow">
-              <span>المدة (دقائق)</span>
-              <input type="number" id="f-duration" min="1" step="5" placeholder="60" />
+              <span>المدة (ساعات)</span>
+              <input type="number" id="f-duration" min="0.5" step="0.5" placeholder="1" />
             </label>
             <label class="field field-narrow">
-              <span>المدفوع</span>
+              <span>الدفعة الأولى (المقدّم)</span>
               <input type="number" id="f-paid" min="0" step="1" placeholder="0" />
             </label>
           </div>
+
+          <div id="f-remaining-line" class="remaining-line" hidden></div>
 
           <label class="field">
             <span>الحالة</span>
@@ -274,8 +277,8 @@
 
         <div class="field-row">
           <label class="field field-narrow">
-            <span>المدة الافتراضية (دقائق)</span>
-            <input type="number" id="set-duration" min="1" step="5" placeholder="60" />
+            <span>المدة الافتراضية (ساعات)</span>
+            <input type="number" id="set-duration" min="0.5" step="0.5" placeholder="1" />
           </label>
           <label class="field field-narrow">
             <span>العملة</span>
@@ -296,6 +299,9 @@
           <input type="text" id="pkg-name" placeholder="اسم الباقة" />
           <input type="number" id="pkg-price" placeholder="السعر" min="0" />
           <button class="btn btn-primary btn-sm" id="pkg-add-btn">إضافة</button>
+        </div>
+        <div class="pkg-add-desc">
+          <input type="text" id="pkg-desc" placeholder="محتوى الباقة (اختياري)" />
         </div>
 
         <hr />
