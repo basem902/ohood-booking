@@ -10,6 +10,14 @@ const $$ = (sel) => document.querySelectorAll(sel);
 const AR_DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const STATUS_LABEL = { confirmed: 'مؤكد', pending: 'بانتظار التأكيد', done: 'مكتمل', cancelled: 'ملغي' };
 
+/* قوالب الرسائل الافتراضية (مكتوبة بصيغة المؤنث؛ تتحوّل للمذكر بنظافة باستبدال «كِ»→«ك»).
+   الحقول الذكية بين أقواس مجعّدة تُستبدَل عبر renderMessage. */
+const DEFAULT_TEMPLATES = {
+  confirm: 'أهلًا وسهلًا بكِ {الاسم} 🌷\nيسعدنا تأكيد حجزكِ لدى {النشاط} 💕\n\n📅 الموعد: {اليوم} {التاريخ}\n🕐 الساعة: {الوقت}\n💼 الباقة: {الباقة}{الإضافات}\n💰 الإجمالي: {الإجمالي} · ✅ المدفوع: {المدفوع} · ⏳ المتبقّي: {المتبقّي}\n🔖 رقم الحجز: {رقم_الحجز}\n\nنتطلّع لاستقبالكِ، وأي استفسار نحن بخدمتكِ 🌸\n{النشاط}',
+  reminder: 'تذكير ودّي 🌷\nنذكّركِ بموعدكِ لدى {النشاط}:\n📅 {اليوم} {التاريخ} - 🕐 {الوقت}\n💼 {الباقة}\n⏳ المتبقّي: {المتبقّي}\nبانتظاركِ 🌸',
+  thanks: 'شكرًا لزيارتكِ {الاسم} 🌷\nسعِدنا بخدمتكِ في {النشاط} ونتشرّف بعودتكِ 💕\nبانتظار عودتكِ القادمة 🌸',
+};
+
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -78,9 +86,14 @@ let settings = {
   targetRevenue: 0,            // هدف الإيراد الشهري
   targetProfit: 0,             // هدف صافي الربح الشهري
   lowMarginThreshold: 20,      // حد هامش الربح المنخفض %
+  // الرسائل والفواتير
+  templates: { ...DEFAULT_TEMPLATES }, // قوالب الرسائل القابلة للتعديل {confirm, reminder, thanks}
+  bookingSeq: 1000,            // عدّاد رقم الحجز التسلسلي (يُسنَد لكل حجز جديد)
 };
 let editingId = null;
 let formAddons = [];   // لقطات الإضافات المختارة في النموذج {id,name,type,clientPrice,costPrice,count}
+let editingPkgId = null;     // معرّف الباقة قيد التعديل في مكانها (null = وضع الإضافة)
+let editingAddonId = null;   // معرّف الإضافة قيد التعديل في مكانها (null = وضع الإضافة)
 
 /* ---------- حالة العرض والتقويم ---------- */
 let viewMode = 'list';         // 'list' أو 'calendar'
@@ -134,6 +147,10 @@ async function loadSettings() {
   const targetProfit = await DB.get('settings', 'targetProfit');
   const lowMarginThreshold = await DB.get('settings', 'lowMarginThreshold');
 
+  // الرسائل والفواتير
+  const templates = await DB.get('settings', 'templates');
+  const bookingSeq = await DB.get('settings', 'bookingSeq');
+
   if (workDays && Array.isArray(workDays.value)) settings.workDays = workDays.value.map(Number);
   if (workStart && workStart.value) settings.workStart = workStart.value;
   if (workEnd && workEnd.value) settings.workEnd = workEnd.value;
@@ -178,6 +195,23 @@ async function loadSettings() {
     settings.lowMarginThreshold = Number.isFinite(t) && t >= 0 ? t : settings.lowMarginThreshold;
   }
 
+  // قوالب الرسائل (تطهير: كل قالب نص؛ الغائب يعود للافتراضي)
+  if (templates && templates.value && typeof templates.value === 'object') {
+    const tv = templates.value;
+    settings.templates = {
+      confirm: typeof tv.confirm === 'string' ? tv.confirm : DEFAULT_TEMPLATES.confirm,
+      reminder: typeof tv.reminder === 'string' ? tv.reminder : DEFAULT_TEMPLATES.reminder,
+      thanks: typeof tv.thanks === 'string' ? tv.thanks : DEFAULT_TEMPLATES.thanks,
+    };
+  } else {
+    settings.templates = { ...DEFAULT_TEMPLATES };
+  }
+  // عدّاد رقم الحجز التسلسلي (عدد صحيح ≥ 1000)
+  if (bookingSeq && bookingSeq.value != null) {
+    const s = Math.floor(Number(bookingSeq.value));
+    settings.bookingSeq = Number.isFinite(s) && s >= 1000 ? s : 1000;
+  }
+
   applySettings();
 }
 
@@ -188,6 +222,7 @@ function applySettings() {
   $('#set-cc').value = settings.cc || '';
   $('.brand-logo').textContent = (settings.biz || 'ع').trim().charAt(0) || 'ع';
   applyWorkSettingsToUI();
+  applyTemplatesToUI();
 }
 
 // تعبئة حقول ساعات العمل في نافذة الإعدادات من كائن settings
@@ -310,11 +345,19 @@ function bindEvents() {
   $('#set-low-margin').addEventListener('change', saveLowMarginSetting);
   $('#fx-add-btn').addEventListener('click', addFixedExpense);
   $('#ao-add-btn').addEventListener('click', addAddon);
+  $('#ao-cancel-edit').addEventListener('click', cancelEditAddon);
+
+  // قوالب الرسائل (حفظ عند التغيير + استعادة الافتراضي)
+  $('#tpl-confirm').addEventListener('change', saveTemplates);
+  $('#tpl-reminder').addEventListener('change', saveTemplates);
+  $('#tpl-thanks').addEventListener('change', saveTemplates);
+  $('#tpl-reset').addEventListener('click', resetTemplates);
 
   // إشعارات التذكير
   $('#btn-notify').addEventListener('click', enableNotifications);
 
   $('#pkg-add-btn').addEventListener('click', addPackage);
+  $('#pkg-cancel-edit').addEventListener('click', cancelEditPackage);
   $('#exp-json').addEventListener('click', exportJSON);
   $('#exp-csv').addEventListener('click', exportCSV);
   $('#imp-json').addEventListener('click', () => $('#imp-file').click());
@@ -342,6 +385,8 @@ async function onSave(e) {
   const paidAmount = Math.max(0, Number($('#f-paid').value) || 0);
   const discount = Math.max(0, Number($('#f-discount').value) || 0);
   const status = $('#f-status').value;
+  // المخاطبة (مؤنث افتراضياً)
+  const gender = $('#f-gender') && $('#f-gender').value === 'male' ? 'male' : 'female';
 
   // منع الحفظ عند التعارض الفعلي إن كان مفعّلاً (مع تجاهل السجل قيد التعديل)
   if (settings.blockConflicts && status !== 'cancelled') {
@@ -351,6 +396,17 @@ async function onSave(e) {
 
   // السجل الحالي عند التعديل (للحفاظ على الحقول المُدارة من صفحة التفاصيل)
   const existing = editingId ? bookings.find((b) => b.id === editingId) : null;
+
+  // رقم الحجز التسلسلي: يُسنَد للحجز الجديد فقط (لا يتغيّر عند التعديل؛ القديم بلا ref يبقى كذلك)
+  let ref;
+  let seqChanged = false;
+  if (editingId) {
+    ref = existing && existing.ref != null ? existing.ref : undefined;
+  } else {
+    settings.bookingSeq = (Number(settings.bookingSeq) || 1000) + 1;
+    ref = settings.bookingSeq;
+    seqChanged = true;
+  }
 
   const record = {
     id: editingId || uid(),
@@ -363,6 +419,8 @@ async function onSave(e) {
     duration,
     paidAmount,
     discount,
+    gender,
+    ref,
     // لقطة الإضافات المختارة في النموذج (نسخة مستقلة)
     addons: formAddons.map((a) => ({ ...a })),
     // المصروفات المُفصّلة تُدار حصرياً من صفحة التفاصيل ⇒ احتفظ بها كما هي عند التعديل
@@ -376,10 +434,28 @@ async function onSave(e) {
   };
 
   await DB.put('bookings', record);
+  // احفظ عدّاد رقم الحجز عند إسناد رقم جديد فقط
+  if (seqChanged) await DB.put('settings', { key: 'bookingSeq', value: settings.bookingSeq });
+
+  // التقط قبل التصفير: حجز جديد؟ وتحوّل الحالة إلى «مكتمل»؟ (resetForm يصفّر editingId)
+  const wasNew = !editingId;
+  const becameDone = !wasNew && status === 'done' && (existing ? existing.status : '') !== 'done';
+  const savedId = record.id;
+  const hasPhone = !!record.phone;
+
   await loadBookings();
   resetForm();
   refreshAll();
-  toast(editingId ? 'تم تحديث الحجز ✓' : 'تم حفظ الحجز ✓', 'ok');
+  toast(wasNew ? 'تم حفظ الحجز ✓' : 'تم تحديث الحجز ✓', 'ok');
+
+  // اقتراح إرسال رسالة بعد الحفظ:
+  // - حجز جديد وله جوال ⇒ رسالة تأكيد.
+  // - حجز قائم تحوّل إلى «مكتمل» ⇒ رسالة شكر.
+  if (wasNew && hasPhone) {
+    openMessagePrompt(savedId, 'confirm');
+  } else if (becameDone) {
+    openMessagePrompt(savedId, 'thanks');
+  }
 }
 
 function editBooking(id) {
@@ -399,6 +475,8 @@ function editBooking(id) {
   // الحقول المالية الجديدة (الحجوزات القديمة بلا هذه الحقول ⇒ فارغة/أصفار)
   $('#f-discount').value = (b.discount != null && Number(b.discount) > 0) ? b.discount : '';
   $('#f-status').value = b.status || 'confirmed';
+  // المخاطبة (الحجوزات القديمة بلا gender ⇒ مؤنث)
+  const gSel = $('#f-gender'); if (gSel) gSel.value = b.gender === 'male' ? 'male' : 'female';
   $('#f-notes').value = b.notes || '';
 
   // حمّل لقطات الإضافات المختارة (نسخة مستقلة) واعرضها
@@ -443,6 +521,8 @@ function resetForm() {
   $('#f-paid').value = '';
   // تصفير الحقول المالية الجديدة
   $('#f-discount').value = '';
+  // إعادة المخاطبة للمؤنث (الافتراضي)
+  const gSel = $('#f-gender'); if (gSel) gSel.value = 'female';
   // تفريغ الإضافات المختارة
   formAddons = [];
   const cnt = $('#f-addon-count'); if (cnt) { cnt.hidden = true; cnt.value = '1'; }
@@ -788,35 +868,87 @@ function renderPackages() {
   // قائمة الإدارة في الإعدادات
   $('#pkg-list').innerHTML = packages.length
     ? packages.map((p) => `
-      <div class="pkg-item">
+      <div class="pkg-item${editingPkgId === p.id ? ' is-editing' : ''}">
         <span class="pn">
           ${esc(p.name)}
           ${p.desc ? `<span class="pkg-desc">${esc(p.desc)}</span>` : ''}
         </span>
         <span class="pp">${p.price ? p.price + ' ' + esc(settings.currency) : '—'}</span>
-        <button class="icon-btn" onclick="removePackage('${p.id}')">🗑</button>
+        <button class="icon-btn" title="تعديل" onclick="editPackage('${esc(p.id)}')">✏️</button>
+        <button class="icon-btn" title="حذف" onclick="removePackage('${esc(p.id)}')">🗑</button>
       </div>`).join('')
     : '<p class="hint">لا توجد باقات بعد.</p>';
 }
 
+/* إضافة باقة جديدة، أو حفظ تعديل باقة قائمة إن كان editingPkgId مضبوطاً.
+   التعديل يُبقي نفس المعرّف وموضع الباقة في القائمة (لا تتغيّر الحجوزات القديمة لأن سعر الباقة مخزّن على الحجز). */
 async function addPackage() {
   const name = $('#pkg-name').value.trim();
   const price = Number($('#pkg-price').value) || 0;
   const desc = $('#pkg-desc').value.trim();
   if (!name) { toast('اكتب اسم الباقة', 'err'); return; }
+
+  if (editingPkgId) {
+    const idx = packages.findIndex((p) => p.id === editingPkgId);
+    if (idx === -1) { setPkgFormMode(null); toast('تعذّر العثور على الباقة', 'err'); return; }
+    const updated = { ...packages[idx], name, price, desc };
+    await DB.put('packages', updated);
+    packages[idx] = updated;            // تحديث في مكانه (يحافظ على الترتيب)
+    setPkgFormMode(null);               // إعادة الوضع الطبيعي + تفريغ الحقول
+    renderPackages();
+    toast('تم تحديث الباقة ✓', 'ok');
+    return;
+  }
+
   const p = { id: uid(), name, price, desc };
   await DB.put('packages', p);
   packages.push(p);
-  $('#pkg-name').value = '';
-  $('#pkg-price').value = '';
-  $('#pkg-desc').value = '';
+  setPkgFormMode(null);                 // تفريغ الحقول وإبقاء الوضع الطبيعي
   renderPackages();
   toast('تمت إضافة الباقة ✓', 'ok');
+}
+
+/* بدء تعديل باقة في مكانها: حمّل قيمها في الحقول وحوّل نموذج الباقات لوضع التعديل. */
+function editPackage(id) {
+  const p = packages.find((x) => x.id === id);
+  if (!p) return;
+  setPkgFormMode(id);
+  $('#pkg-name').value = p.name || '';
+  $('#pkg-price').value = (p.price != null && Number(p.price) > 0) ? p.price : '';
+  $('#pkg-desc').value = p.desc || '';
+  $('#pkg-name').focus();
+}
+
+// إلغاء تعديل الباقة والعودة لوضع الإضافة
+function cancelEditPackage() {
+  setPkgFormMode(null);
+  renderPackages();   // أزل تمييز العنصر قيد التعديل
+}
+
+/* ضبط وضع نموذج الباقات: id ⇒ تعديل (زر «حفظ التعديل» + إظهار «إلغاء»)، null ⇒ إضافة (تفريغ الحقول).
+   يحدّث editingPkgId ونصوص/إظهار الأزرار في مكان واحد لتفادي التكرار. */
+function setPkgFormMode(id) {
+  editingPkgId = id || null;
+  const btn = $('#pkg-add-btn');
+  const cancel = $('#pkg-cancel-edit');
+  if (editingPkgId) {
+    if (btn) btn.textContent = 'حفظ التعديل';
+    if (cancel) cancel.hidden = false;
+  } else {
+    if (btn) btn.textContent = 'إضافة';
+    if (cancel) cancel.hidden = true;
+    // تفريغ الحقول عند العودة لوضع الإضافة
+    $('#pkg-name').value = '';
+    $('#pkg-price').value = '';
+    $('#pkg-desc').value = '';
+  }
 }
 
 async function removePackage(id) {
   await DB.del('packages', id);
   packages = packages.filter((p) => p.id !== id);
+  // إن حُذفت الباقة قيد التعديل، أعد النموذج لوضع الإضافة
+  if (editingPkgId === id) setPkgFormMode(null);
   renderPackages();
 }
 
@@ -1154,19 +1286,143 @@ function onCalendarClick(e) {
   renderList();
 }
 
-/* ---------- واتساب ---------- */
-function sendWhatsApp(id) {
-  const b = bookings.find((x) => x.id === id);
-  if (!b || !b.phone) return;
-  let num = b.phone.replace(/\D/g, '');
+/* ===================================================== */
+/* ---------- محرّك الرسائل (القوالب + الحقول الذكية) ---------- */
+/* ===================================================== */
+
+/* أسماء إضافات الحجز مفصولة بفواصل (للحقل الذكي {الإضافات}).
+   تُرجع '' عند غياب الإضافات. */
+function addonsNames(b) {
+  return ((b && b.addons) || [])
+    .map((a) => String((a && a.name) || '').trim())
+    .filter(Boolean)
+    .join('، ');
+}
+
+/* بناء نص رسالة من قالب نوعها (confirm|reminder|thanks) ببيانات الحجز.
+   يستبدل الحقول الذكية، ثم يحوّل للمذكر إن كانت المخاطبة «male» باستبدال «كِ»→«ك». */
+function renderMessage(type, b) {
+  const tpl = (settings.templates && settings.templates[type]) || DEFAULT_TEMPLATES[type] || '';
+  const names = addonsNames(b);
+  const map = {
+    '{الاسم}': (b && b.name) || '',
+    '{النشاط}': settings.biz || 'حجوزات عهود',
+    '{التاريخ}': (b && b.date) || '',
+    '{اليوم}': weekdayName(b && b.date),
+    '{الوقت}': formatTime12(b && b.time),
+    '{الباقة}': (b && b.package) || '—',
+    '{الإضافات}': names ? ` + (${names})` : '',
+    '{الإجمالي}': fmtMoney(bookingTotal(b)),
+    '{المدفوع}': fmtMoney(bookingPaid(b)),
+    '{المتبقّي}': fmtMoney(bookingRemaining(b)),
+    '{رقم_الحجز}': (b && b.ref) ? ('#' + b.ref) : '—',
+  };
+  let text = tpl;
+  for (const key in map) {
+    text = text.split(key).join(map[key]);
+  }
+  // تحويل المذكر: «كِ» (كاف U+0643 ثم كسرة U+0650) ⇒ «ك»
+  if (b && b.gender === 'male') {
+    text = text.replace(/كِ/g, 'ك');
+  }
+  return text;
+}
+
+/* تطبيع رقم الجوال إلى صيغة واتساب الدولية (بنفس منطق مفتاح الدولة settings.cc). */
+function waNumber(phone) {
+  let num = String(phone || '').replace(/\D/g, '');
   if (num.startsWith('00')) num = num.slice(2);
   else if (num.startsWith('0')) num = (settings.cc || '966') + num.slice(1);
   else if (!num.startsWith(settings.cc || '966') && num.length <= 10) num = (settings.cc || '966') + num;
+  return num;
+}
 
-  const msg = `مرحباً ${b.name} 🌸\nنذكّركم بموعدكم:\n📅 ${b.date} (${weekdayName(b.date)})\n🕐 ${formatTime12(b.time)}` +
-    (b.package ? `\n💼 ${b.package}` : '') +
-    `\n\n${settings.biz}`;
-  window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
+/* فتح محادثة واتساب لرقم الحجز بنص جاهز (مُرمّز). */
+function waSend(b, text) {
+  if (!b || !b.phone) { toast('لا يوجد رقم جوال لهذا الحجز', 'err'); return; }
+  const num = waNumber(b.phone);
+  window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, '_blank');
+}
+
+/* نسخ نص للحافظة عبر Clipboard API مع بديل (textarea + execCommand) و toast تأكيد. */
+function copyText(text) {
+  const done = () => toast('تم نسخ النص ✓', 'ok');
+  const fail = () => toast('تعذّر نسخ النص', 'err');
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done, fail));
+      return;
+    }
+  } catch (_) { /* تجاهل وانتقل للبديل */ }
+  fallbackCopy(text, done, fail);
+}
+
+// نسخ بديل لبيئات بلا Clipboard API (أو سياق غير آمن)
+function fallbackCopy(text, done, fail) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    ok ? done() : fail();
+  } catch (_) {
+    fail();
+  }
+}
+
+/* ---------- واتساب ---------- */
+// تذكير واتساب لحجز محدّد عبر قالب «التذكير» (يُستخدم من القائمة وصفحة التفاصيل)
+function sendWhatsApp(id) {
+  const b = bookings.find((x) => x.id === id);
+  if (!b || !b.phone) return;
+  waSend(b, renderMessage('reminder', b));
+}
+
+// عناوين نافذة الرسالة حسب النوع
+const MSG_TITLE = { confirm: '✅ رسالة تأكيد الحجز', reminder: '⏰ رسالة تذكير بالموعد', thanks: '🌷 رسالة شكر' };
+
+/* فتح نافذة معاينة رسالة (confirm|reminder|thanks) لحجز محدّد:
+   تبني النص عبر renderMessage، تعرضه في #mp-preview، تضبط العنوان،
+   وتربط زرّي الإرسال (واتساب) والنسخ. إن لا جوال للعميلة عُطّل زر الإرسال وبقي النسخ. */
+function openMessagePrompt(bookingId, type) {
+  const b = bookings.find((x) => x.id === bookingId);
+  if (!b) return;
+  const t = MSG_TITLE[type] ? type : 'confirm';
+  const text = renderMessage(t, b);
+
+  const titleEl = $('#mp-title');
+  const preEl = $('#mp-preview');
+  const sendBtn = $('#mp-send');
+  const copyBtn = $('#mp-copy');
+  if (!preEl || !sendBtn || !copyBtn) return;
+
+  if (titleEl) titleEl.textContent = MSG_TITLE[t];
+  preEl.textContent = text;   // textContent يحافظ على الأسطر بأمان دون HTML
+
+  // زر الإرسال: متاح فقط عند وجود جوال؛ نستبدل المعالج في كل فتح (clone) لمنع التراكم
+  const newSend = sendBtn.cloneNode(true);
+  sendBtn.parentNode.replaceChild(newSend, sendBtn);
+  if (b.phone) {
+    newSend.disabled = false;
+    newSend.title = '';
+    newSend.addEventListener('click', () => waSend(b, text));
+  } else {
+    newSend.disabled = true;
+    newSend.title = 'لا يوجد رقم جوال لهذه العميلة';
+  }
+
+  // زر النسخ: متاح دائماً
+  const newCopy = copyBtn.cloneNode(true);
+  copyBtn.parentNode.replaceChild(newCopy, copyBtn);
+  newCopy.addEventListener('click', () => copyText(text));
+
+  openModal('#msg-prompt');
 }
 
 /* ===================================================== */
@@ -1900,6 +2156,160 @@ function printProfitLoss(from, to, totals) {
   w.document.close();
 }
 
+/* ===================================================== */
+/* ---------- فاتورة/إيصال الحجز (عميلة / داخلية) ---------- */
+/* ===================================================== */
+
+/* يبني فاتورة/إيصالاً منسّقاً لحجز محدّد ويفتحه في نافذة طباعة مستقلة (RTL، style مضمّن، بلا موارد خارجية).
+   mode='client'  ⇒ ما يخصّ العميلة فقط (الباقة، الإضافات بسعر العميل، الخصم، الضريبة إن مفعّلة، الإجمالي، المدفوع، المتبقّي) — بلا أي تكلفة/مصروفات/صافي/هامش.
+   mode='internal' ⇒ يضيف قسماً داخلياً بتكلفة الإضافات وإجمالي المصروفات والصافي والهامش.
+   كل القيم عبر الدوال المالية القائمة و fmtMoney، وكل النصوص عبر esc (نفس نمط printProfitLoss). */
+function printInvoice(id, mode) {
+  const b = bookings.find((x) => x.id === id);
+  if (!b) { toast('تعذّر العثور على الحجز', 'err'); return; }
+  const internal = mode === 'internal';
+  const biz = settings.biz || 'حجوزات عهود';
+  const today = todayStr();
+  const draft = { duration: bookingDuration(b) };   // لحساب الإضافات بالساعة بمدّة هذا الحجز
+
+  // ===== القيم المالية على العميل (تُحسب مرة واحدة عبر الدوال المالية) =====
+  const price = bookingPrice(b);
+  const addonsClient = bookingAddonsClient(b);
+  const subtotal = price + addonsClient;            // المجموع الفرعي قبل الخصم
+  const discount = bookingDiscount(b);
+  const vat = bookingVat(b);
+  const total = bookingTotal(b);                    // الإجمالي المتفق عليه
+  const paid = bookingPaid(b);
+  const remaining = bookingRemaining(b);
+  const refTxt = b.ref != null ? ('#' + b.ref) : '—';
+
+  // صف بند (وصف + قيمة)
+  const itemRow = (label, value) =>
+    `<tr><td class="iv-l">${esc(label)}</td><td class="iv-v">${esc(fmtMoney(value))}</td></tr>`;
+
+  // ===== بنود الفاتورة: الباقة ثم كل إضافة بسعرها على العميل =====
+  let itemRows = `<tr><td class="iv-l">الباقة: ${esc(b.package || '—')}</td><td class="iv-v">${esc(fmtMoney(price))}</td></tr>`;
+  (b.addons || []).forEach((a) => {
+    const cnt = a.type === 'hourly' && (Number(a.count) || 1) > 1 ? ` ×${Number(a.count) || 1}` : '';
+    const per = a.type === 'hourly' ? ' (بالساعة)' : '';
+    itemRows += `<tr><td class="iv-l iv-addon">+ ${esc(a.name)}${esc(cnt)}${esc(per)}</td><td class="iv-v">${esc(fmtMoney(addonClient(a, draft)))}</td></tr>`;
+  });
+
+  // ===== ملخّص المبالغ (ما يخصّ العميلة) =====
+  const vatLine = settings.vatEnabled
+    ? `<tr class="iv-sum-row"><td class="iv-l">ضريبة القيمة المضافة (${esc(String(settings.vatRate))}%)</td><td class="iv-v">${esc(fmtMoney(vat))}</td></tr>`
+    : '';
+  const discountLine = discount > 0
+    ? `<tr class="iv-sum-row iv-minus"><td class="iv-l">الخصم</td><td class="iv-v">- ${esc(fmtMoney(discount))}</td></tr>`
+    : '';
+  const summaryRows = `
+    <tr class="iv-sum-row"><td class="iv-l">المجموع الفرعي</td><td class="iv-v">${esc(fmtMoney(subtotal))}</td></tr>
+    ${discountLine}
+    ${vatLine}
+    <tr class="iv-total"><td class="iv-l">الإجمالي المتفق عليه</td><td class="iv-v">${esc(fmtMoney(total))}</td></tr>
+    <tr class="iv-sum-row iv-paid"><td class="iv-l">المدفوع</td><td class="iv-v">${esc(fmtMoney(paid))}</td></tr>
+    <tr class="iv-remaining ${remaining > 0 ? 'due' : 'clear'}"><td class="iv-l">المتبقّي</td><td class="iv-v">${esc(fmtMoney(remaining))}</td></tr>`;
+
+  // ===== القسم الداخلي (فاتورة داخلية فقط): تكلفة الإضافات + المصروفات + الصافي + الهامش =====
+  let internalHtml = '';
+  if (internal) {
+    const addonsCost = bookingAddonsCost(b);
+    const expenses = bookingExpenses(b);
+    const net = bookingNet(b);
+    const margin = bookingMargin(b);
+    const netCls = net < 0 ? 'neg' : 'pos';
+    internalHtml = `
+      <div class="iv-internal-tag">⚠️ نسخة داخلية — لا تُسلَّم للعميلة</div>
+      <div class="iv-sec-title">التكاليف والربحية (داخلي)</div>
+      <table class="iv-table"><tbody>
+        ${itemRow('تكلفة الإضافات', addonsCost)}
+        ${itemRow('إجمالي المصروفات', expenses)}
+        <tr class="iv-total ${netCls}"><td class="iv-l">صافي الربح</td><td class="iv-v">${esc(fmtMoney(net))}</td></tr>
+        <tr class="iv-margin"><td class="iv-l">هامش الربح</td><td class="iv-v">${margin.toFixed(1)}%</td></tr>
+      </tbody></table>`;
+  }
+
+  const docTitle = internal ? 'فاتورة داخلية' : 'فاتورة / إيصال';
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8" />
+<title>${esc(docTitle)} ${esc(refTxt)} — ${esc(biz)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Tahoma, system-ui, sans-serif; color: #1f2333; margin: 0; padding: 28px; background: #fff; }
+  .iv-head { text-align: center; border-bottom: 3px solid #7c3aed; padding-bottom: 14px; margin-bottom: 18px; }
+  .iv-head h1 { margin: 0; font-size: 24px; color: #6d28d9; letter-spacing: .5px; }
+  .iv-head h2 { margin: 6px 0 0; font-size: 15px; font-weight: 600; color: #1f2333; }
+  .iv-meta { font-size: 13px; color: #6b7280; margin-top: 8px; display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
+  .iv-meta b { color: #1f2333; }
+  .iv-sec-title { font-size: 14px; font-weight: 700; color: #6d28d9; margin: 22px 0 8px; }
+  .iv-client { background: #f9f8fe; border: 1px solid #e9e7f3; border-radius: 10px; padding: 12px 14px; font-size: 14px; }
+  .iv-client .iv-c-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #ece9f7; }
+  .iv-client .iv-c-row:last-child { border-bottom: 0; }
+  .iv-client .iv-c-k { color: #6b7280; }
+  .iv-client .iv-c-v { font-weight: 700; }
+  table.iv-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.iv-table td { padding: 9px 12px; border-bottom: 1px solid #e9e7f3; }
+  .iv-l { text-align: start; }
+  .iv-v { text-align: end; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .iv-addon { color: #4b5563; padding-inline-start: 22px; font-weight: 500; }
+  .iv-sum-row .iv-l { color: #6b7280; }
+  .iv-minus .iv-v { color: #b91c1c; }
+  .iv-paid .iv-v { color: #15803d; }
+  .iv-total td { font-size: 17px; font-weight: 800; border-top: 2px solid #7c3aed; border-bottom: 2px solid #7c3aed; background: #f5f4fb; color: #5b21b6; }
+  .iv-total.pos td { color: #15803d; background: #dcfce7; }
+  .iv-total.neg td { color: #b91c1c; background: #fef2f2; }
+  .iv-remaining td { font-size: 16px; font-weight: 800; }
+  .iv-remaining.due td { color: #b91c1c; }
+  .iv-remaining.clear td { color: #15803d; }
+  .iv-margin td { color: #6b7280; font-weight: 600; }
+  .iv-internal-tag { margin-top: 20px; background: #fef2f2; color: #b91c1c; border: 1px dashed #fca5a5; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 700; text-align: center; }
+  .iv-foot { margin-top: 26px; font-size: 12px; color: #6b7280; text-align: center; border-top: 1px solid #e9e7f3; padding-top: 12px; line-height: 1.7; }
+  .iv-foot .iv-thanks { color: #6d28d9; font-weight: 700; font-size: 13px; }
+  @media print { body { padding: 0; } .iv-noprint { display: none; } }
+</style></head>
+<body>
+  <div class="iv-head">
+    <h1>${esc(biz)}</h1>
+    <h2>${esc(docTitle)}</h2>
+    <div class="iv-meta">
+      <span>رقم الحجز: <b>${esc(refTxt)}</b></span>
+      <span>تاريخ الإصدار: <b>${esc(today)}</b></span>
+    </div>
+  </div>
+
+  <div class="iv-sec-title">بيانات العميلة</div>
+  <div class="iv-client">
+    <div class="iv-c-row"><span class="iv-c-k">الاسم</span><span class="iv-c-v">${esc(b.name || '—')}</span></div>
+    ${b.phone ? `<div class="iv-c-row"><span class="iv-c-k">الجوال</span><span class="iv-c-v">${esc(b.phone)}</span></div>` : ''}
+    <div class="iv-c-row"><span class="iv-c-k">الموعد</span><span class="iv-c-v">${esc(weekdayName(b.date))} ${esc(b.date || '—')}${b.time ? ' — ' + esc(formatTime12(b.time)) : ''}</span></div>
+  </div>
+
+  <div class="iv-sec-title">تفاصيل الفاتورة</div>
+  <table class="iv-table"><tbody>${itemRows}${summaryRows}</tbody></table>
+
+  ${internalHtml}
+
+  <div class="iv-foot">
+    <div class="iv-thanks">شكرًا لكِ على ثقتكِ 🌷</div>
+    <div>${esc(biz)}</div>
+  </div>
+
+  <script>
+    window.addEventListener('load', function () {
+      setTimeout(function () { try { window.print(); } catch (e) {} }, 250);
+    });
+  <\/script>
+</body></html>`;
+
+  // افتح نافذة مستقلة واكتب فيها الفاتورة (آمن إن مُنعت النوافذ المنبثقة)
+  const w = window.open('', '_blank');
+  if (!w) { toast('فعّل النوافذ المنبثقة لطباعة الفاتورة', 'err'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
 /* ---------- الإعدادات والنسخ الاحتياطي ---------- */
 async function saveBizSettings() {
   settings.biz = $('#set-biz').value.trim() || 'حجوزات عهود';
@@ -1976,6 +2386,36 @@ async function saveLowMarginSetting() {
   toast('تم حفظ حد الهامش المنخفض ✓', 'ok');
 }
 
+/* ---------- قوالب الرسائل (الإعدادات) ---------- */
+
+// تعبئة مربّعات نص القوالب في الإعدادات من settings.templates
+function applyTemplatesToUI() {
+  const t = settings.templates || DEFAULT_TEMPLATES;
+  const c = $('#tpl-confirm'); if (c) c.value = t.confirm != null ? t.confirm : DEFAULT_TEMPLATES.confirm;
+  const r = $('#tpl-reminder'); if (r) r.value = t.reminder != null ? t.reminder : DEFAULT_TEMPLATES.reminder;
+  const k = $('#tpl-thanks'); if (k) k.value = t.thanks != null ? t.thanks : DEFAULT_TEMPLATES.thanks;
+}
+
+// حفظ القوالب من مربّعات النص إلى settings وقاعدة البيانات
+async function saveTemplates() {
+  const c = $('#tpl-confirm'); const r = $('#tpl-reminder'); const k = $('#tpl-thanks');
+  settings.templates = {
+    confirm: c ? c.value : DEFAULT_TEMPLATES.confirm,
+    reminder: r ? r.value : DEFAULT_TEMPLATES.reminder,
+    thanks: k ? k.value : DEFAULT_TEMPLATES.thanks,
+  };
+  await DB.put('settings', { key: 'templates', value: settings.templates });
+  toast('تم حفظ القوالب ✓', 'ok');
+}
+
+// استعادة القوالب الافتراضية (تعبئة الواجهة ثم الحفظ)
+async function resetTemplates() {
+  settings.templates = { ...DEFAULT_TEMPLATES };
+  applyTemplatesToUI();
+  await DB.put('settings', { key: 'templates', value: settings.templates });
+  toast('تمت استعادة القوالب الافتراضية ✓', 'ok');
+}
+
 // حفظ مصفوفة المصروفات الثابتة في قاعدة البيانات
 async function persistFixedExpenses() {
   await DB.put('settings', { key: 'fixedExpenses', value: settings.fixedExpenses });
@@ -2044,19 +2484,21 @@ function renderAddons() {
       const cost = Math.max(0, Number(x.costPrice) || 0);
       const per = x.type === 'hourly' ? '/ساعة' : '';
       return `
-      <div class="ao-item">
+      <div class="ao-item${editingAddonId === x.id ? ' is-editing' : ''}">
         <span class="ao-n">
           ${esc(x.name) || '—'}
           <span class="ao-type">${ADDON_TYPE_LABEL[x.type] || ADDON_TYPE_LABEL.fixed}</span>
         </span>
         <span class="ao-p">${esc(fmtMoney(x.clientPrice))}${per}${cost > 0 ? ` <span class="ao-cost">تكلفة ${esc(fmtMoney(cost))}</span>` : ''}</span>
-        <button class="icon-btn" onclick="removeAddon('${esc(x.id)}')">🗑</button>
+        <button class="icon-btn" title="تعديل" onclick="editAddon('${esc(x.id)}')">✏️</button>
+        <button class="icon-btn" title="حذف" onclick="removeAddon('${esc(x.id)}')">🗑</button>
       </div>`;
     }).join('')
     : '<p class="hint">لا توجد إضافات بعد.</p>';
 }
 
-// إضافة عنصر إلى كتالوج الإضافات (اسم + سعر العميل + تكلفة اختيارية + نوع)
+/* إضافة عنصر لكتالوج الإضافات، أو حفظ تعديل عنصر قائم إن كان editingAddonId مضبوطاً.
+   التعديل يُبقي نفس المعرّف وموضع العنصر، ولا يمسّ الحجوزات القديمة (الإضافات لقطات مخزّنة على الحجز). */
 async function addAddon() {
   const name = $('#ao-name').value.trim();
   const clientPrice = Math.max(0, Number($('#ao-client').value) || 0);
@@ -2064,21 +2506,71 @@ async function addAddon() {
   const type = $('#ao-type').value === 'hourly' ? 'hourly' : 'fixed';
   if (!name) { toast('اكتب اسم الإضافة', 'err'); return; }
   if (clientPrice <= 0) { toast('أدخل سعراً صحيحاً للعميل', 'err'); return; }
+
+  if (editingAddonId) {
+    const list = settings.addons || [];
+    const idx = list.findIndex((x) => x.id === editingAddonId);
+    if (idx === -1) { setAddonFormMode(null); toast('تعذّر العثور على الإضافة', 'err'); return; }
+    list[idx] = { ...list[idx], name, clientPrice, costPrice, type };   // تحديث في مكانه
+    settings.addons = list;
+    await persistAddons();
+    setAddonFormMode(null);     // إعادة الوضع الطبيعي + تفريغ الحقول
+    renderAddons();
+    refreshFormAddonSelect();   // أبقِ قائمة اختيار النموذج متزامنة مع الكتالوج
+    toast('تم تحديث الإضافة ✓', 'ok');
+    return;
+  }
+
   settings.addons = (settings.addons || []).concat({ id: uid(), name, clientPrice, costPrice, type });
   await persistAddons();
-  $('#ao-name').value = '';
-  $('#ao-client').value = '';
-  $('#ao-cost').value = '';
-  $('#ao-type').value = 'fixed';
+  setAddonFormMode(null);       // تفريغ الحقول وإبقاء الوضع الطبيعي
   renderAddons();
-  refreshFormAddonSelect();   // أبقِ قائمة اختيار النموذج متزامنة مع الكتالوج
+  refreshFormAddonSelect();     // أبقِ قائمة اختيار النموذج متزامنة مع الكتالوج
   toast('تمت إضافة الإضافة ✓', 'ok');
+}
+
+/* بدء تعديل إضافة في مكانها: حمّل قيمها في الحقول وحوّل نموذج الإضافات لوضع التعديل. */
+function editAddon(id) {
+  const x = (settings.addons || []).find((a) => a.id === id);
+  if (!x) return;
+  setAddonFormMode(id);
+  $('#ao-name').value = x.name || '';
+  $('#ao-client').value = (Number(x.clientPrice) || 0) > 0 ? x.clientPrice : '';
+  $('#ao-cost').value = (Number(x.costPrice) || 0) > 0 ? x.costPrice : '';
+  $('#ao-type').value = x.type === 'hourly' ? 'hourly' : 'fixed';
+  $('#ao-name').focus();
+}
+
+// إلغاء تعديل الإضافة والعودة لوضع الإضافة
+function cancelEditAddon() {
+  setAddonFormMode(null);
+  renderAddons();   // أزل تمييز العنصر قيد التعديل
+}
+
+/* ضبط وضع نموذج الإضافات: id ⇒ تعديل (زر «حفظ التعديل» + إظهار «إلغاء»)، null ⇒ إضافة (تفريغ الحقول). */
+function setAddonFormMode(id) {
+  editingAddonId = id || null;
+  const btn = $('#ao-add-btn');
+  const cancel = $('#ao-cancel-edit');
+  if (editingAddonId) {
+    if (btn) btn.textContent = 'حفظ التعديل';
+    if (cancel) cancel.hidden = false;
+  } else {
+    if (btn) btn.textContent = 'إضافة';
+    if (cancel) cancel.hidden = true;
+    $('#ao-name').value = '';
+    $('#ao-client').value = '';
+    $('#ao-cost').value = '';
+    $('#ao-type').value = 'fixed';
+  }
 }
 
 // حذف عنصر من كتالوج الإضافات بالمعرّف
 async function removeAddon(id) {
   settings.addons = (settings.addons || []).filter((x) => x.id !== id);
   await persistAddons();
+  // إن حُذفت الإضافة قيد التعديل، أعد النموذج لوضع الإضافة
+  if (editingAddonId === id) setAddonFormMode(null);
   renderAddons();
   refreshFormAddonSelect();   // أبقِ قائمة اختيار النموذج متزامنة مع الكتالوج
 }
@@ -2221,6 +2713,25 @@ function renderBookingDetails(id) {
     </div>
   </div>`;
 
+  // ===== أزرار الرسائل (تأكيد/تذكير/شكر) =====
+  const msgHtml = `<div class="bd-section">
+    <h4 class="bd-title">📨 الرسائل</h4>
+    <div class="bd-actions">
+      <button type="button" class="btn btn-ghost" onclick="openMessagePrompt('${esc(b.id)}','confirm')">✅ تأكيد</button>
+      <button type="button" class="btn btn-ghost" onclick="openMessagePrompt('${esc(b.id)}','reminder')">⏰ تذكير</button>
+      <button type="button" class="btn btn-ghost" onclick="openMessagePrompt('${esc(b.id)}','thanks')">🌷 شكر</button>
+    </div>
+  </div>`;
+
+  // ===== أزرار الفواتير (فاتورة العميلة / فاتورة داخلية) =====
+  const invoiceHtml = `<div class="bd-section">
+    <h4 class="bd-title">🧾 الفواتير</h4>
+    <div class="bd-actions">
+      <button type="button" class="btn btn-ghost" onclick="printInvoice('${esc(b.id)}','client')">🧾 فاتورة العميلة</button>
+      <button type="button" class="btn btn-ghost" onclick="printInvoice('${esc(b.id)}','internal')">📄 فاتورة داخلية</button>
+    </div>
+  </div>`;
+
   // ===== أزرار الإجراءات =====
   const actionsHtml = `<div class="bd-actions">
     <button type="button" class="btn btn-primary" onclick="editBooking('${esc(b.id)}');closeModals();">✏️ تعديل</button>
@@ -2228,7 +2739,7 @@ function renderBookingDetails(id) {
     <button type="button" class="btn btn-danger" onclick="deleteBooking('${esc(b.id)}').then(()=>{ if(!bookings.find((x)=>x.id==='${esc(b.id)}')) closeModals(); })">🗑 حذف</button>
   </div>`;
 
-  box.innerHTML = infoHtml + agreedHtml + addonsHtml + expHtml + summaryHtml + actionsHtml;
+  box.innerHTML = infoHtml + agreedHtml + addonsHtml + expHtml + summaryHtml + msgHtml + invoiceHtml + actionsHtml;
 }
 
 /* إضافة بند مصروف يدوي لحجز: يُقرأ المبلغ/الملاحظة، يُضاف إلى expenseItems،
@@ -2451,14 +2962,22 @@ window.editBooking = editBooking;
 window.deleteBooking = deleteBooking;
 window.sendWhatsApp = sendWhatsApp;
 window.removePackage = removePackage;
+window.editPackage = editPackage;
 window.notifyBooking = notifyBooking;
 window.removeFixedExpense = removeFixedExpense;
 window.removeAddon = removeAddon;
+window.editAddon = editAddon;
 window.removeFormAddon = removeFormAddon;
 window.openBookingDetails = openBookingDetails;
 window.renderBookingDetails = renderBookingDetails;
 window.addExpenseItem = addExpenseItem;
 window.removeExpenseItem = removeExpenseItem;
+// محرّك الرسائل والفواتير (يُستخدم من صفحة التفاصيل)
+window.renderMessage = renderMessage;
+window.waSend = waSend;
+window.copyText = copyText;
+window.openMessagePrompt = openMessagePrompt;
+window.printInvoice = printInvoice;
 
 /* انطلاق */
 init().catch((err) => {
