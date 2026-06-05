@@ -1261,6 +1261,22 @@ async function installApp() {
   }
 }
 
+// هل التطبيق يعمل مثبّتاً (وضع standalone)؟
+function isStandalonePWA() {
+  return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+// كشف أجهزة آيفون/آيباد (iOS لا يدعم beforeinstallprompt)
+function isIosDevice() {
+  const ua = navigator.userAgent || '';
+  return /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS 13+
+}
+// على آيفون: أظهر زر التثبيت يدويًا ليفتح إرشادات «إضافة إلى الشاشة الرئيسية»
+if (isIosDevice() && !isStandalonePWA()) {
+  const installBtn = $('#btn-install');
+  if (installBtn) installBtn.hidden = false;
+}
+
 /* كشف الدوال المستخدمة في onclick داخل الجدول */
 window.editBooking = editBooking;
 window.deleteBooking = deleteBooking;

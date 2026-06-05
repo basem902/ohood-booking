@@ -1,7 +1,7 @@
 /* =====================================================
    service-worker.js — تخزين الملفات للعمل بدون إنترنت
    ===================================================== */
-const CACHE = 'ohood-booking-v3';
+const CACHE = 'ohood-booking-v4';
 const ASSETS = [
   './',
   './index.html',
