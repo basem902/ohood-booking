@@ -54,6 +54,7 @@
       <div class="stat-card">
         <span class="stat-label">قيمة الحجوزات</span>
         <span class="stat-value" id="stat-revenue">0 <small>ر.س</small></span>
+        <span class="stat-sub" id="stat-net"></span>
         <span class="stat-sub" id="stat-remaining"></span>
       </div>
     </section>
@@ -114,7 +115,24 @@
             </label>
           </div>
 
+          <div class="field-row">
+            <label class="field field-narrow">
+              <span>خصم</span>
+              <input type="number" id="f-discount" min="0" step="1" placeholder="0" />
+            </label>
+            <label class="field field-narrow">
+              <span>مصروفات الحجز</span>
+              <input type="number" id="f-expenses" min="0" step="1" placeholder="0" />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>تفصيل المصروفات (اختياري)</span>
+            <input type="text" id="f-expense-note" placeholder="مثال: مستلزمات، مواصلات..." />
+          </label>
+
           <div id="f-remaining-line" class="remaining-line" hidden></div>
+          <div id="f-net-line" class="net-line" hidden></div>
 
           <label class="field">
             <span>الحالة</span>
@@ -292,6 +310,51 @@
         </label>
 
         <hr />
+        <h4>الضريبة</h4>
+        <p class="hint">عند التفعيل تُحتسب ضريبة القيمة المضافة كجزء مُستخرَج من سعر الحجز (السعر شامل الضريبة).</p>
+        <label class="field check-field">
+          <input type="checkbox" id="set-vat-enabled" />
+          <span>تفعيل ضريبة القيمة المضافة</span>
+        </label>
+        <label class="field field-narrow">
+          <span>نسبة الضريبة %</span>
+          <input type="number" id="set-vat-rate" min="0" step="0.5" placeholder="15" />
+        </label>
+
+        <hr />
+        <h4>المصروفات الثابتة الشهرية</h4>
+        <p class="hint">مصروفات متكرّرة تُطبَّق على كل شهر في التقارير (إيجار، اشتراكات...).</p>
+        <div id="fixed-exp-list" class="fixed-exp-list"></div>
+        <div class="fx-add">
+          <input type="text" id="fx-name" placeholder="اسم المصروف" />
+          <input type="number" id="fx-amount" placeholder="المبلغ" min="0" step="1" />
+          <button class="btn btn-primary btn-sm" id="fx-add-btn">إضافة</button>
+        </div>
+        <div id="fixed-exp-total" class="fixed-exp-total"></div>
+
+        <hr />
+        <h4>الأهداف الشهرية</h4>
+        <p class="hint">تُستخدم لقياس تقدّمك في التقارير (اتركها 0 لتعطيلها).</p>
+        <div class="field-row">
+          <label class="field field-narrow">
+            <span>هدف الإيراد الشهري</span>
+            <input type="number" id="set-target-revenue" min="0" step="1" placeholder="0" />
+          </label>
+          <label class="field field-narrow">
+            <span>هدف صافي الربح الشهري</span>
+            <input type="number" id="set-target-profit" min="0" step="1" placeholder="0" />
+          </label>
+        </div>
+
+        <hr />
+        <h4>حد هامش الربح المنخفض</h4>
+        <p class="hint">الحجز الذي هامش ربحه أقل من هذه النسبة يُعتبر «منخفض الربح».</p>
+        <label class="field field-narrow">
+          <span>حد الهامش المنخفض %</span>
+          <input type="number" id="set-low-margin" min="0" step="1" placeholder="20" />
+        </label>
+
+        <hr />
         <h4>إدارة الباقات</h4>
         <p class="hint">الباقات تظهر كاقتراحات عند إضافة حجز، ويُملأ السعر تلقائياً.</p>
         <div id="pkg-list" class="pkg-list"></div>
@@ -317,19 +380,34 @@
     </div>
   </div>
 
-  <!-- ====== نافذة التقارير الشهرية ====== -->
+  <!-- ====== نافذة التقارير (لوحة تحليلية بفترة زمنية) ====== -->
   <div class="modal" id="reports-modal" hidden>
     <div class="modal-box modal-box-wide">
       <div class="modal-head">
-        <h3>📊 التقارير الشهرية</h3>
+        <h3>📊 التقارير</h3>
         <button class="icon-btn" data-close-modal>✕</button>
       </div>
       <div class="modal-body">
-        <label class="field">
-          <span>اختر الشهر</span>
-          <input type="month" id="report-month" />
-        </label>
-        <!-- ملخص الشهر ومحتوى التقرير يُبنى ديناميكياً -->
+        <!-- اختصارات سريعة للفترة -->
+        <div class="report-quick" role="group" aria-label="فترات سريعة">
+          <button type="button" class="rq-btn is-active" data-range="month">هذا الشهر</button>
+          <button type="button" class="rq-btn" data-range="last-month">الشهر الماضي</button>
+          <button type="button" class="rq-btn" data-range="30">آخر 30 يومًا</button>
+          <button type="button" class="rq-btn" data-range="year">هذا العام</button>
+          <button type="button" class="rq-btn" data-range="all">الكل</button>
+        </div>
+        <!-- فترة مخصّصة: من / إلى -->
+        <div class="field-row report-range">
+          <label class="field field-narrow">
+            <span>من</span>
+            <input type="date" id="report-from" />
+          </label>
+          <label class="field field-narrow">
+            <span>إلى</span>
+            <input type="date" id="report-to" />
+          </label>
+        </div>
+        <!-- لوحة المؤشرات ومحتوى التقرير يُبنى ديناميكياً -->
         <div id="report-content"></div>
       </div>
     </div>

@@ -70,6 +70,13 @@ let settings = {
   blockConflicts: false,       // منع الحفظ عند التعارض الفعلي
   currency: 'ر.س',
   notifyEnabled: false,
+  // الإعدادات المالية
+  vatEnabled: false,           // تفعيل ضريبة القيمة المضافة
+  vatRate: 15,                 // نسبة الضريبة %
+  fixedExpenses: [],           // مصروفات ثابتة شهرية [{id, name, amount}]
+  targetRevenue: 0,            // هدف الإيراد الشهري
+  targetProfit: 0,             // هدف صافي الربح الشهري
+  lowMarginThreshold: 20,      // حد هامش الربح المنخفض %
 };
 let editingId = null;
 
@@ -115,6 +122,14 @@ async function loadSettings() {
   const currency = await DB.get('settings', 'currency');
   const notifyEnabled = await DB.get('settings', 'notifyEnabled');
 
+  // الإعدادات المالية
+  const vatEnabled = await DB.get('settings', 'vatEnabled');
+  const vatRate = await DB.get('settings', 'vatRate');
+  const fixedExpenses = await DB.get('settings', 'fixedExpenses');
+  const targetRevenue = await DB.get('settings', 'targetRevenue');
+  const targetProfit = await DB.get('settings', 'targetProfit');
+  const lowMarginThreshold = await DB.get('settings', 'lowMarginThreshold');
+
   if (workDays && Array.isArray(workDays.value)) settings.workDays = workDays.value.map(Number);
   if (workStart && workStart.value) settings.workStart = workStart.value;
   if (workEnd && workEnd.value) settings.workEnd = workEnd.value;
@@ -124,6 +139,28 @@ async function loadSettings() {
   if (blockConflicts) settings.blockConflicts = !!blockConflicts.value;
   if (currency && currency.value) settings.currency = currency.value;
   if (notifyEnabled) settings.notifyEnabled = !!notifyEnabled.value;
+
+  // تحميل الإعدادات المالية مع الافتراضيات (توافق رجعي تام)
+  if (vatEnabled) settings.vatEnabled = !!vatEnabled.value;
+  if (vatRate && vatRate.value != null) {
+    const r = Number(vatRate.value);
+    settings.vatRate = Number.isFinite(r) && r >= 0 ? r : settings.vatRate;
+  }
+  if (fixedExpenses && Array.isArray(fixedExpenses.value)) {
+    settings.fixedExpenses = fixedExpenses.value
+      .filter((x) => x && typeof x === 'object')
+      .map((x) => ({ id: x.id || uid(), name: String(x.name || ''), amount: Math.max(0, Number(x.amount) || 0) }));
+  }
+  if (targetRevenue && targetRevenue.value != null) {
+    settings.targetRevenue = Math.max(0, Number(targetRevenue.value) || 0);
+  }
+  if (targetProfit && targetProfit.value != null) {
+    settings.targetProfit = Math.max(0, Number(targetProfit.value) || 0);
+  }
+  if (lowMarginThreshold && lowMarginThreshold.value != null) {
+    const t = Number(lowMarginThreshold.value);
+    settings.lowMarginThreshold = Number.isFinite(t) && t >= 0 ? t : settings.lowMarginThreshold;
+  }
 
   applySettings();
 }
@@ -148,6 +185,17 @@ function applyWorkSettingsToUI() {
   const dd = $('#set-duration'); if (dd) dd.value = (settings.defaultDuration || 60) / 60;
   const cur = $('#set-currency'); if (cur) cur.value = settings.currency || 'ر.س';
   const bc = $('#set-block'); if (bc) bc.checked = !!settings.blockConflicts;
+  applyFinanceSettingsToUI();
+}
+
+// تعبئة حقول الإعدادات المالية في نافذة الإعدادات من كائن settings
+function applyFinanceSettingsToUI() {
+  const ve = $('#set-vat-enabled'); if (ve) ve.checked = !!settings.vatEnabled;
+  const vr = $('#set-vat-rate'); if (vr) vr.value = settings.vatRate != null ? settings.vatRate : 15;
+  const tr = $('#set-target-revenue'); if (tr) tr.value = settings.targetRevenue || 0;
+  const tp = $('#set-target-profit'); if (tp) tp.value = settings.targetProfit || 0;
+  const lm = $('#set-low-margin'); if (lm) lm.value = settings.lowMarginThreshold != null ? settings.lowMarginThreshold : 20;
+  renderFixedExpenses();
 }
 
 async function loadPackages() {
@@ -178,9 +226,11 @@ function bindEvents() {
   $('#f-time').addEventListener('change', refreshDayWarning);
   $('#f-duration').addEventListener('input', refreshDayWarning);
   $('#f-package').addEventListener('input', onPackageInput);
-  // تحديث سطر المتبقّي حيًّا عند تغيير السعر أو الدفعة الأولى
+  // تحديث سطري المتبقّي والصافي حيًّا عند تغيير السعر/الدفعة/المصروفات/الخصم
   $('#f-price').addEventListener('input', updateRemainingLine);
   $('#f-paid').addEventListener('input', updateRemainingLine);
+  $('#f-expenses').addEventListener('input', updateRemainingLine);
+  $('#f-discount').addEventListener('input', updateRemainingLine);
 
   $('#search').addEventListener('input', renderList);
   // تغيير النطاق الزمني يلغي تصفية اليوم المحدّد من التقويم
@@ -204,9 +254,16 @@ function bindEvents() {
   // تفويض النقر داخل شبكة التقويم (يوم أو موعد مصغّر)
   $('#cal-grid').addEventListener('click', onCalendarClick);
 
-  // التقارير الشهرية
+  // التقارير (لوحة تحليلية بفترة زمنية)
   $('#btn-reports').addEventListener('click', openReports);
-  $('#report-month').addEventListener('change', renderReport);
+  $('#report-from').addEventListener('change', () => { clearQuickActive(); renderReport(); });
+  $('#report-to').addEventListener('change', () => { clearQuickActive(); renderReport(); });
+  // أزرار الاختصارات السريعة: تضبط من/إلى ثم تعيد الرسم
+  $$('.rq-btn').forEach((btn) => btn.addEventListener('click', () => {
+    applyQuickRange(btn.getAttribute('data-range'));
+    $$('.rq-btn').forEach((b) => b.classList.toggle('is-active', b === btn));
+    renderReport();
+  }));
 
   // الإعدادات
   $('#btn-settings').addEventListener('click', () => { applyWorkSettingsToUI(); updateNotifyUI(); openModal('#settings-modal'); });
@@ -224,6 +281,14 @@ function bindEvents() {
   $('#set-duration').addEventListener('change', saveWorkSettings);
   $('#set-currency').addEventListener('change', saveWorkSettings);
   $('#set-block').addEventListener('change', saveWorkSettings);
+
+  // الإعدادات المالية (حفظ عند التغيير)
+  $('#set-vat-enabled').addEventListener('change', saveVatSettings);
+  $('#set-vat-rate').addEventListener('change', saveVatSettings);
+  $('#set-target-revenue').addEventListener('change', saveTargetSettings);
+  $('#set-target-profit').addEventListener('change', saveTargetSettings);
+  $('#set-low-margin').addEventListener('change', saveLowMarginSetting);
+  $('#fx-add-btn').addEventListener('click', addFixedExpense);
 
   // إشعارات التذكير
   $('#btn-notify').addEventListener('click', enableNotifications);
@@ -254,6 +319,10 @@ async function onSave(e) {
   // المدة تُدخَل بالساعات وتُخزَّن بالدقائق؛ إن كان الحقل فارغاً نستخدم المدة الافتراضية (دقائق)
   const duration = durationFieldMinutes();
   const paidAmount = Math.max(0, Number($('#f-paid').value) || 0);
+  // الحقول المالية الجديدة (افتراضها 0/فارغ ⇒ توافق رجعي)
+  const expenses = Math.max(0, Number($('#f-expenses').value) || 0);
+  const expenseNote = $('#f-expense-note').value.trim();
+  const discount = Math.max(0, Number($('#f-discount').value) || 0);
   const status = $('#f-status').value;
 
   // منع الحفظ عند التعارض الفعلي إن كان مفعّلاً (مع تجاهل السجل قيد التعديل)
@@ -272,6 +341,9 @@ async function onSave(e) {
     price,
     duration,
     paidAmount,
+    expenses,
+    expenseNote,
+    discount,
     status,
     notes: $('#f-notes').value.trim(),
     createdAt: editingId ? (bookings.find((b) => b.id === editingId)?.createdAt || Date.now()) : Date.now(),
@@ -298,6 +370,10 @@ function editBooking(id) {
   // المدة مخزَّنة بالدقائق وتُعرَض في الحقل بالساعات
   $('#f-duration').value = (b.duration != null ? b.duration : settings.defaultDuration) / 60;
   $('#f-paid').value = (b.paidAmount != null ? b.paidAmount : 0);
+  // الحقول المالية الجديدة (الحجوزات القديمة بلا هذه الحقول ⇒ فارغة/أصفار)
+  $('#f-expenses').value = (b.expenses != null && Number(b.expenses) > 0) ? b.expenses : '';
+  $('#f-expense-note').value = b.expenseNote || '';
+  $('#f-discount').value = (b.discount != null && Number(b.discount) > 0) ? b.discount : '';
   $('#f-status').value = b.status || 'confirmed';
   $('#f-notes').value = b.notes || '';
 
@@ -328,6 +404,10 @@ function resetForm() {
   $('#f-date').value = todayStr();
   $('#f-duration').value = settings.defaultDuration / 60;   // المدة الافتراضية (ساعات)
   $('#f-paid').value = '';
+  // تصفير الحقول المالية الجديدة
+  $('#f-expenses').value = '';
+  $('#f-expense-note').value = '';
+  $('#f-discount').value = '';
   $('#form-title').textContent = '➕ حجز جديد';
   $('#btn-save').textContent = 'حفظ الحجز';
   $('#btn-reset').hidden = true;
@@ -377,18 +457,59 @@ function bookingPrice(b) {
   return Number.isFinite(p) && p > 0 ? p : 0;
 }
 
-// المتبقّي = max(0, السعر - المدفوع)
-function bookingRemaining(b) {
-  return Math.max(0, bookingPrice(b) - bookingPaid(b));
+/* ---------- العقد المالي: دوال محسوبة لكل حجز ----------
+   تُعرَّف مرة واحدة وتُستخدم في كل مكان (لا تكرار للحساب).
+   كل الحقول الجديدة افتراضها 0 ⇒ توافق رجعي تام مع الحجوزات القديمة. */
+
+// مبلغ الخصم (افتراضياً 0)
+function bookingDiscount(b) {
+  return Math.max(0, Number(b && b.discount) || 0);
 }
 
-/* حالة الدفع المشتقّة:
-   paidAmount<=0 ⇒ 'unpaid'، price>0 && paidAmount>=price ⇒ 'paid'، غير ذلك ⇒ 'partial' */
+// الإجمالي بعد الخصم = ما على العميل
+function bookingTotal(b) {
+  return Math.max(0, bookingPrice(b) - bookingDiscount(b));
+}
+
+// الضريبة المُستخرَجة من إجمالي شامل الضريبة (إن كانت مفعّلة)
+function bookingVat(b) {
+  const rate = Number(settings.vatRate) || 0;
+  return settings.vatEnabled ? bookingTotal(b) * (rate / (100 + rate)) : 0;
+}
+
+// الإيراد الصافي من الضريبة (إيرادك الفعلي)
+function bookingRevenue(b) {
+  return bookingTotal(b) - bookingVat(b);
+}
+
+// مصروفات الحجز المباشرة (افتراضياً 0)
+function bookingExpenses(b) {
+  return Math.max(0, Number(b && b.expenses) || 0);
+}
+
+// صافي الربح = الإيراد الصافي - مصروفات الحجز
+function bookingNet(b) {
+  return bookingRevenue(b) - bookingExpenses(b);
+}
+
+// هامش الربح % (حارس ضد القسمة على صفر)
+function bookingMargin(b) {
+  const rev = bookingRevenue(b);
+  return rev > 0 ? (bookingNet(b) / rev) * 100 : 0;
+}
+
+// المتبقّي = max(0, الإجمالي بعد الخصم - المدفوع)
+function bookingRemaining(b) {
+  return Math.max(0, bookingTotal(b) - bookingPaid(b));
+}
+
+/* حالة الدفع المشتقّة (بناءً على الإجمالي بعد الخصم):
+   paid<=0 ⇒ 'unpaid'، total>0 && paid>=total ⇒ 'paid'، غير ذلك ⇒ 'partial' */
 function paymentStatus(b) {
   const paid = bookingPaid(b);
-  const price = bookingPrice(b);
+  const total = bookingTotal(b);
   if (paid <= 0) return 'unpaid';
-  if (price > 0 && paid >= price) return 'paid';
+  if (total > 0 && paid >= total) return 'paid';
   return 'partial';
 }
 
@@ -399,20 +520,61 @@ function fmtMoney(n) {
   return (Number(n) || 0).toLocaleString('en-US') + ' ' + (settings.currency || 'ر.س');
 }
 
+/* بناء كائن حجز مؤقّت من قيم النموذج الحالية لإعادة استخدام الدوال المحسوبة.
+   يضمن تطابق حسابات الواجهة الحيّة مع منطق الحفظ والتقارير. */
+function formBookingDraft() {
+  return {
+    price: Number($('#f-price').value) || 0,
+    discount: Math.max(0, Number($('#f-discount') && $('#f-discount').value) || 0),
+    expenses: Math.max(0, Number($('#f-expenses') && $('#f-expenses').value) || 0),
+    paidAmount: Math.max(0, Number($('#f-paid').value) || 0),
+  };
+}
+
 /* تحديث سطر «المتبقّي» الحي أسفل صف السعر/الدفعة في النموذج.
-   المتبقّي = max(0, السعر - الدفعة الأولى). يظهر فقط عند وجود سعر>0، ويُخفى خلاف ذلك. */
+   المتبقّي = max(0, الإجمالي بعد الخصم - الدفعة الأولى). يظهر فقط عند وجود إجمالي>0.
+   ويحدّث سطر «الصافي» (الصافي والهامش%) تبعاً للسعر/الخصم/المصروفات/الضريبة. */
 function updateRemainingLine() {
+  const draft = formBookingDraft();
   const line = $('#f-remaining-line');
-  if (!line) return;
-  const price = Number($('#f-price').value) || 0;
-  const paid = Number($('#f-paid').value) || 0;
-  if (price > 0) {
-    const remaining = Math.max(0, price - paid);
-    line.innerHTML = `المتبقّي: <b>${esc(fmtMoney(remaining))}</b>`;
-    line.hidden = false;
+  if (line) {
+    const total = bookingTotal(draft);
+    if (total > 0) {
+      const remaining = bookingRemaining(draft);
+      const discount = bookingDiscount(draft);
+      const vat = bookingVat(draft);
+      line.innerHTML = `المتبقّي: <b>${esc(fmtMoney(remaining))}</b>`
+        + (discount > 0 ? ` <span class="rl-extra">• بعد خصم ${esc(fmtMoney(discount))}</span>` : '')
+        + (vat > 0 ? ` <span class="rl-extra">• ضريبة ${esc(fmtMoney(vat))}</span>` : '');
+      line.hidden = false;
+    } else {
+      line.textContent = '';
+      line.hidden = true;
+    }
+  }
+  updateNetLine(draft);
+}
+
+/* سطر «الصافي» الحي: صافي الربح والهامش% للحجز الحالي.
+   يظهر عند وجود إيراد>0 أو مصروفات>0، ويُخفى خلاف ذلك. */
+function updateNetLine(draft) {
+  const net = $('#f-net-line');
+  if (!net) return;
+  const d = draft || formBookingDraft();
+  const revenue = bookingRevenue(d);
+  const expenses = bookingExpenses(d);
+  if (revenue > 0 || expenses > 0) {
+    const netVal = bookingNet(d);
+    const margin = bookingMargin(d);
+    const cls = netVal < 0 ? 'neg' : (margin < (Number(settings.lowMarginThreshold) || 0) ? 'low' : 'pos');
+    net.className = 'net-line ' + cls;
+    net.innerHTML = `الصافي: <b>${esc(fmtMoney(netVal))}</b>`
+      + ` <span class="nl-margin">هامش ${margin.toFixed(1)}%</span>`
+      + (expenses > 0 ? ` <span class="nl-extra">• مصروفات ${esc(fmtMoney(expenses))}</span>` : '');
+    net.hidden = false;
   } else {
-    line.textContent = '';
-    line.hidden = true;
+    net.textContent = '';
+    net.hidden = true;
   }
 }
 
@@ -587,11 +749,24 @@ function renderStats() {
   const upcoming = active.filter((b) => b.date >= today).length;
   const revenue = active.reduce((s, b) => s + bookingPrice(b), 0);
   const remaining = active.reduce((s, b) => s + bookingRemaining(b), 0);
+  // صافي ربح الحجوزات غير الملغاة (مجموع bookingNet لكل حجز)
+  const net = active.reduce((s, b) => s + bookingNet(b), 0);
 
   $('#stat-today').textContent = todayCount;
   $('#stat-upcoming').textContent = upcoming;
   $('#stat-total').textContent = bookings.length;
   $('#stat-revenue').innerHTML = revenue.toLocaleString('en-US') + ` <small>${esc(settings.currency)}</small>`;
+  // صافي الربح الإجمالي تحت بطاقة قيمة الحجوزات (يظهر دائماً ما دام هناك حجوزات نشطة)
+  const netEl = $('#stat-net');
+  if (netEl) {
+    if (active.length) {
+      netEl.textContent = `الصافي: ${fmtMoney(net)}`;
+      netEl.className = 'stat-sub ' + (net < 0 ? 'neg' : 'pos');
+    } else {
+      netEl.textContent = '';
+      netEl.className = 'stat-sub';
+    }
+  }
   // المتبقّي الإجمالي تحت بطاقة قيمة الحجوزات (يظهر فقط عند وجود متبقٍّ)
   const remEl = $('#stat-remaining');
   if (remEl) {
@@ -653,11 +828,19 @@ function renderList() {
   tableEl.style.display = '';
   empty.hidden = true;
 
+  const lowMargin = Number(settings.lowMarginThreshold) || 0;
   body.innerHTML = rows.map((b) => {
     const isToday = b.date === today;
     const pay = paymentStatus(b);          // حالة الدفع المشتقّة
     const remaining = bookingRemaining(b); // المتبقّي
-    return `<tr class="${b.status}">
+    // مؤشّرات الربحية (الدوال المحسوبة — لا تكرار للحساب)
+    const revenue = bookingRevenue(b);
+    const net = bookingNet(b);
+    const margin = bookingMargin(b);
+    // تنبيه «ربح منخفض»: إيراد>0 والهامش أقل من الحد المضبوط (غير الملغاة فقط)
+    const isLow = b.status !== 'cancelled' && revenue > 0 && margin < lowMargin;
+    const netCls = net < 0 ? 'neg' : (isLow ? 'low' : 'pos');
+    return `<tr class="${b.status}${isLow ? ' is-low-margin' : ''}">
       <td>
         <span class="cell-name">${esc(b.name)}</span>
         ${b.phone ? `<span class="cell-sub">${esc(b.phone)}</span>` : ''}
@@ -675,6 +858,11 @@ function renderList() {
           <span class="pay-badge ${pay}">${PAY_LABEL[pay]}</span>
           ${remaining > 0 ? `<span class="pay-rem">متبقّي ${esc(fmtMoney(remaining))}</span>` : ''}
         </span>
+        ${(revenue > 0 || bookingExpenses(b) > 0) ? `<span class="net-line-row ${netCls}">
+          <span class="nlr-net">صافي ${esc(fmtMoney(net))}</span>
+          <span class="nlr-margin">${margin.toFixed(1)}%</span>
+          ${isLow ? '<span class="nlr-warn">⚠️ ربح منخفض</span>' : ''}
+        </span>` : ''}
       </td>
       <td><span class="badge ${b.status}">${STATUS_LABEL[b.status] || ''}</span></td>
       <td class="col-actions">
@@ -1100,44 +1288,354 @@ function startReminderTimer() {
 /* ---------- التقارير الشهرية ---------- */
 /* ===================================================== */
 
-// الشهر الحالي بصيغة YYYY-MM
-function currentMonthStr() {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  return `${d.getFullYear()}-${m}`;
+/* ---------- أدوات الفترة الزمنية ---------- */
+
+// أول يوم في شهر تاريخٍ ما (YYYY-MM-DD)
+function firstOfMonth(d) { return dateToStr(new Date(d.getFullYear(), d.getMonth(), 1)); }
+// آخر يوم في شهر تاريخٍ ما (YYYY-MM-DD)
+function lastOfMonth(d) { return dateToStr(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
+
+// إزالة فعّال «نشط» عن أزرار الاختصارات (عند تعديل الحقول يدوياً)
+function clearQuickActive() {
+  $$('.rq-btn').forEach((b) => b.classList.remove('is-active'));
 }
 
-// فتح نافذة التقارير: اضبط الشهر الحالي افتراضياً ثم ابنِ التقرير
+// ضبط حقلي من/إلى وفق اختصار سريع
+function applyQuickRange(kind) {
+  const now = new Date();
+  let from = '';
+  let to = '';
+  if (kind === 'month') {
+    from = firstOfMonth(now); to = lastOfMonth(now);
+  } else if (kind === 'last-month') {
+    const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    from = firstOfMonth(lm); to = lastOfMonth(lm);
+  } else if (kind === '30') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+    from = dateToStr(start); to = dateToStr(now);
+  } else if (kind === 'year') {
+    from = dateToStr(new Date(now.getFullYear(), 0, 1));
+    to = dateToStr(new Date(now.getFullYear(), 11, 31));
+  } else if (kind === 'all') {
+    // أوسع نطاق ممكن من بيانات الحجوزات الفعلية
+    const dates = bookings.map((b) => b.date).filter(Boolean).sort();
+    from = dates.length ? dates[0] : firstOfMonth(now);
+    to = dates.length ? dates[dates.length - 1] : lastOfMonth(now);
+    // إن امتد المدى للمستقبل، وسّع «إلى» ليشمل آخر حجز
+    if (to < dateToStr(now)) to = dateToStr(now);
+  }
+  $('#report-from').value = from;
+  $('#report-to').value = to;
+}
+
+// قراءة الفترة الحالية من الحقلين، مع ضمان from<=to (تبديل عند اللزوم)
+function reportRange() {
+  let from = $('#report-from').value || '';
+  let to = $('#report-to').value || '';
+  if (from && to && from > to) { const t = from; from = to; to = t; }
+  return { from, to };
+}
+
+// تصفية الحجوزات التي تاريخها داخل [from..to] شاملًا الطرفين
+function bookingsInRange(from, to) {
+  return bookings.filter((b) => {
+    const d = b.date || '';
+    if (!d) return false;
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+}
+
+// عدد الأيام في فترة [from..to] شاملًا الطرفين (1 على الأقل)
+function rangeDays(from, to) {
+  if (!from || !to) return 1;
+  const a = new Date(from + 'T00:00');
+  const b = new Date(to + 'T00:00');
+  const ms = b - a;
+  return Math.max(1, Math.round(ms / 86400000) + 1);
+}
+
+// عدد أشهر الفترة حسب العقد = (سنةإلى*12+شهرإلى) - (سنةمن*12+شهرمن) + 1
+function rangeMonths(from, to) {
+  if (!from || !to) return 1;
+  const a = new Date(from + 'T00:00');
+  const b = new Date(to + 'T00:00');
+  const m = (b.getFullYear() * 12 + b.getMonth()) - (a.getFullYear() * 12 + a.getMonth()) + 1;
+  return Math.max(1, m);
+}
+
+/* تجميع الإجماليات المالية لفترة (تُحسب على غير الملغاة داخل الفترة).
+   يرجع كائناً بكل المؤشرات اللازمة للوحة، مع الحراسة ضد القسمة على صفر. */
+function periodTotals(from, to) {
+  const all = bookingsInRange(from, to);                 // كل حجوزات الفترة (شاملة الملغاة)
+  const active = all.filter((b) => b.status !== 'cancelled');
+
+  const revenue = active.reduce((s, b) => s + bookingRevenue(b), 0);   // إجمالي الإيراد الصافي من الضريبة
+  const bookingExp = active.reduce((s, b) => s + bookingExpenses(b), 0); // مصروفات الحجوزات
+  const vat = active.reduce((s, b) => s + bookingVat(b), 0);            // إجمالي الضريبة
+  const collected = active.reduce((s, b) => s + bookingPaid(b), 0);     // المُحصّل
+  const remaining = active.reduce((s, b) => s + bookingRemaining(b), 0); // المتبقّي
+
+  const months = rangeMonths(from, to);
+  const fixed = fixedExpensesTotal() * months;            // المصروفات الثابتة للفترة
+  const net = revenue - bookingExp - fixed;               // صافي ربح الفترة
+  const margin = revenue > 0 ? (net / revenue) * 100 : 0; // هامش الفترة %
+
+  const total = all.length;
+  const cancelled = all.length - active.length;
+  const cancelRate = total > 0 ? (cancelled / total) * 100 : 0;
+  const avgBooking = active.length > 0 ? revenue / active.length : 0;
+  const avgNet = active.length > 0 ? net / active.length : 0;
+
+  return {
+    all, active, revenue, bookingExp, vat, fixed, net, margin,
+    collected, remaining, count: total, activeCount: active.length,
+    cancelled, cancelRate, avgBooking, avgNet, months,
+  };
+}
+
+/* ---------- الاتجاه الشهري (للرسم البياني) ----------
+   يبني صفاً لكل شهر يتقاطع مع الفترة [from..to]، يقصّ الشهر الأول/الأخير على حدود الفترة.
+   لكل شهر: الإيراد = Σ bookingRevenue، المصروفات = Σ bookingExpenses + المصروفات الثابتة الشهرية،
+   الصافي = الإيراد - المصروفات (تتطابق الأعمدة الثلاثة بصرياً: صافي = إيراد - مصروفات).
+   يُحسب على غير الملغاة فقط. */
+function monthlyTrend(from, to) {
+  if (!from || !to) return [];
+  const a = new Date(from + 'T00:00');
+  const b = new Date(to + 'T00:00');
+  const fixedMonthly = fixedExpensesTotal();
+  const rows = [];
+  // ابدأ من أول الشهر الذي يقع فيه «from» وتقدّم شهراً شهراً حتى شهر «to»
+  let cur = new Date(a.getFullYear(), a.getMonth(), 1);
+  const endKey = b.getFullYear() * 12 + b.getMonth();
+  // حارس ضد أي مدى غير منطقي (حد أقصى 600 شهر = 50 سنة)
+  for (let guard = 0; guard < 600; guard++) {
+    const curKey = cur.getFullYear() * 12 + cur.getMonth();
+    if (curKey > endKey) break;
+    // حدود الشهر مقصوصة على حدود الفترة
+    const mFirst = firstOfMonth(cur);
+    const mLast = lastOfMonth(cur);
+    const lo = mFirst < from ? from : mFirst;
+    const hi = mLast > to ? to : mLast;
+    const list = bookingsInRange(lo, hi).filter((x) => x.status !== 'cancelled');
+    const revenue = list.reduce((s, x) => s + bookingRevenue(x), 0);
+    const expenses = list.reduce((s, x) => s + bookingExpenses(x), 0) + fixedMonthly;
+    rows.push({
+      key: dateToStr(cur).slice(0, 7),
+      label: `${AR_MONTHS[cur.getMonth()]} ${String(cur.getFullYear()).slice(2)}`,
+      revenue,
+      expenses,
+      net: revenue - expenses,
+    });
+    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+  }
+  return rows;
+}
+
+/* رسم شريط تقدّم نحو هدف (مع الحراسة ضد القسمة على صفر).
+   يرجّع HTML لشريط واحد: التسمية، القيمة/الهدف، النسبة، وتلوين عند بلوغ الهدف. */
+function goalBarHtml(label, value, target) {
+  const tgt = Math.max(0, Number(target) || 0);
+  if (tgt <= 0) return '';   // هدف غير مفعّل
+  const val = Number(value) || 0;
+  const pct = (val / tgt) * 100;
+  const reached = val >= tgt;
+  const width = Math.max(0, Math.min(100, pct));   // عرض الشريط محصور بين 0 و100%
+  const cls = reached ? 'reached' : (val < 0 ? 'neg' : '');
+  return `<div class="goal-row">
+    <div class="goal-top">
+      <span class="goal-label">${esc(label)}${reached ? ' <span class="goal-check">✓ تحقّق</span>' : ''}</span>
+      <span class="goal-pct ${cls}">${pct.toFixed(1)}%</span>
+    </div>
+    <div class="goal-track"><span class="goal-fill ${cls}" style="width:${width.toFixed(1)}%"></span></div>
+    <div class="goal-sub">${esc(fmtMoney(val))} <span class="goal-of">من ${esc(fmtMoney(tgt))}</span></div>
+  </div>`;
+}
+
+/* لوحة الأهداف الشهرية: تقدّم الإيراد مقابل targetRevenue والصافي مقابل targetProfit.
+   الأهداف شهرية، فإن امتدت الفترة لعدة أشهر نضرب الهدف في عدد الأشهر للمقارنة العادلة. */
+function goalsHtml(t) {
+  const months = Math.max(1, t.months || 1);
+  const revTarget = (Number(settings.targetRevenue) || 0) * months;
+  const profitTarget = (Number(settings.targetProfit) || 0) * months;
+  const revBar = goalBarHtml('الإيراد مقابل الهدف', t.revenue, revTarget);
+  const netBar = goalBarHtml('صافي الربح مقابل الهدف', t.net, profitTarget);
+  if (!revBar && !netBar) return '';   // لا أهداف مضبوطة
+  const note = months > 1 ? ` <span class="goals-note">(هدف ${months} أشهر)</span>` : '';
+  return `<h4 class="report-h">الأهداف الشهرية${note}</h4>
+    <div class="goals-wrap">${revBar}${netBar}</div>`;
+}
+
+/* رسم بياني للاتجاه الشهري (آخر 6 أشهر ضمن الفترة): أعمدة مجمّعة لكل شهر
+   تُظهر الإيراد والمصروفات والصافي. الارتفاع نسبةً لأكبر قيمة مطلقة (حارس ضد صفر). */
+function trendChartHtml(from, to) {
+  let rows = monthlyTrend(from, to);
+  if (!rows.length) return '';
+  // آخر 6 أشهر فقط للحفاظ على وضوح الرسم
+  if (rows.length > 6) rows = rows.slice(rows.length - 6);
+  // المقياس: أكبر قيمة مطلقة بين الإيراد/المصروفات/الصافي (حارس ضد القسمة على صفر)
+  let maxAbs = 0;
+  for (const r of rows) {
+    maxAbs = Math.max(maxAbs, Math.abs(r.revenue), Math.abs(r.expenses), Math.abs(r.net));
+  }
+  if (maxAbs <= 0) maxAbs = 1;
+  const cols = rows.map((r) => {
+    const hR = Math.max(2, Math.round((Math.abs(r.revenue) / maxAbs) * 100));
+    const hE = Math.max(2, Math.round((Math.abs(r.expenses) / maxAbs) * 100));
+    const hN = Math.max(2, Math.round((Math.abs(r.net) / maxAbs) * 100));
+    const netCls = r.net < 0 ? 'neg' : 'pos';
+    return `<div class="tc-col" title="${esc(r.label)}">
+      <div class="tc-bars">
+        <span class="tc-bar tc-rev" style="height:${hR}%" title="الإيراد ${esc(fmtMoney(r.revenue))}"></span>
+        <span class="tc-bar tc-exp" style="height:${hE}%" title="المصروفات ${esc(fmtMoney(r.expenses))}"></span>
+        <span class="tc-bar tc-net ${netCls}" style="height:${hN}%" title="الصافي ${esc(fmtMoney(r.net))}"></span>
+      </div>
+      <span class="tc-net-val ${netCls}">${esc(fmtMoney(Math.round(r.net)))}</span>
+      <span class="tc-label">${esc(r.label)}</span>
+    </div>`;
+  }).join('');
+  return `<h4 class="report-h">الاتجاه الشهري (آخر ${rows.length} ${rows.length === 1 ? 'شهر' : 'أشهر'})</h4>
+    <div class="trend-chart">
+      <div class="tc-cols">${cols}</div>
+      <div class="tc-legend">
+        <span class="tcl"><i class="tcl-dot tc-rev"></i> الإيراد</span>
+        <span class="tcl"><i class="tcl-dot tc-exp"></i> المصروفات</span>
+        <span class="tcl"><i class="tcl-dot tc-net pos"></i> الصافي</span>
+      </div>
+    </div>`;
+}
+
+/* أعمدة أفقية للربح حسب الباقة: الصافي لكل باقة، الطول نسبةً لأكبر صافٍ مطلق.
+   pkgArr: مصفوفة [اسم, {count, revenue, expenses, net}] مرتّبة تنازلياً بالصافي. */
+function pkgProfitBarsHtml(pkgArr) {
+  if (!pkgArr.length) return '';
+  let maxAbs = 0;
+  for (const [, v] of pkgArr) maxAbs = Math.max(maxAbs, Math.abs(v.net));
+  if (maxAbs <= 0) maxAbs = 1;   // حارس ضد القسمة على صفر
+  const bars = pkgArr.map(([name, v], i) => {
+    const w = Math.max(2, Math.round((Math.abs(v.net) / maxAbs) * 100));
+    const cls = v.net < 0 ? 'neg' : 'pos';
+    const top = i === 0 && v.net > 0;
+    return `<div class="ppb-row">
+      <span class="ppb-name" title="${esc(name)}">${top ? '⭐ ' : ''}${esc(name)}</span>
+      <span class="ppb-track"><span class="ppb-fill ${cls}" style="width:${w}%"></span></span>
+      <span class="ppb-val ${cls}">${esc(fmtMoney(Math.round(v.net)))}</span>
+    </div>`;
+  }).join('');
+  return `<div class="pkg-profit-bars">${bars}</div>`;
+}
+
+// فتح نافذة التقارير: اضبط «هذا الشهر» افتراضياً (إن لم تُضبط فترة) ثم ابنِ التقرير
 function openReports() {
-  const inp = $('#report-month');
-  if (!inp.value) inp.value = currentMonthStr();
+  if (!$('#report-from').value || !$('#report-to').value) {
+    applyQuickRange('month');
+    $$('.rq-btn').forEach((b) => b.classList.toggle('is-active', b.getAttribute('data-range') === 'month'));
+  }
   renderReport();
   openModal('#reports-modal');
 }
 
-// بناء تقرير الشهر المختار (مطابقة التاريخ الذي يبدأ بـ YYYY-MM)
+// سهم/نسبة التغيّر بين قيمة حالية وسابقة (للمقارنة)
+function deltaHtml(cur, prev) {
+  if (!(prev > 0)) {
+    // لا أساس سابق للمقارنة (صفر أو سالب): أظهر «جديد» محايداً عند وجود قيمة حالية
+    if (cur > 0) return `<span class="rep-delta neu">جديد</span>`;
+    return `<span class="rep-delta neu">—</span>`;
+  }
+  const pct = ((cur - prev) / Math.abs(prev)) * 100;
+  const up = pct >= 0;
+  const arrow = up ? '↑' : '↓';
+  const cls = up ? 'up' : 'down';
+  return `<span class="rep-delta ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+}
+
+/* بناء اللوحة التحليلية للفترة [from..to] حسب العقد المالي.
+   - بطاقات المؤشرات (KPIs)، المقارنة بالفترة السابقة المكافئة،
+   - التوزيع حسب الحالة، والربح حسب الباقة. */
 function renderReport() {
-  const ym = $('#report-month').value || currentMonthStr();
   const box = $('#report-content');
+  const { from, to } = reportRange();
 
-  // كل حجوزات الشهر (يشمل الملغاة لعرض توزيع الحالات)
-  const monthAll = bookings.filter((b) => (b.date || '').startsWith(ym));
-  // غير الملغاة (لحساب الأرقام المالية)
-  const active = monthAll.filter((b) => b.status !== 'cancelled');
-
-  const count = monthAll.length;
-  const revenue = active.reduce((s, b) => s + bookingPrice(b), 0);
-  const collected = active.reduce((s, b) => s + bookingPaid(b), 0);
-  const remaining = Math.max(0, revenue - collected);
-
-  if (!count) {
-    box.innerHTML = `<div class="report-empty">لا توجد حجوزات في هذا الشهر.</div>`;
+  // لا فترة محدّدة بعد
+  if (!from || !to) {
+    box.innerHTML = `<div class="report-empty">اختر فترة لعرض التقرير.</div>`;
     return;
   }
 
-  // ----- توزيع حسب الحالة -----
+  const t = periodTotals(from, to);
+
+  if (!t.count) {
+    box.innerHTML = `<div class="report-empty">لا توجد حجوزات في هذه الفترة.</div>`;
+    return;
+  }
+
+  // ----- المقارنة: الفترة السابقة المكافئة (نفس عدد الأيام قبلها مباشرة) -----
+  const days = rangeDays(from, to);
+  const prevTo = dateToStr(new Date(new Date(from + 'T00:00').getTime() - 86400000));
+  const prevFrom = dateToStr(new Date(new Date(prevTo + 'T00:00').getTime() - (days - 1) * 86400000));
+  const tp = periodTotals(prevFrom, prevTo);
+
+  const netCls = t.net < 0 ? 'neg' : (t.margin < (Number(settings.lowMarginThreshold) || 0) ? 'low' : 'pos');
+
+  // ----- لوحة المؤشرات (KPIs) -----
+  const kpis = `
+    <div class="kpi-grid">
+      <div class="kpi kpi-rev">
+        <span class="kpi-label">إجمالي الإيراد</span>
+        <span class="kpi-value">${esc(fmtMoney(t.revenue))}</span>
+        ${deltaHtml(t.revenue, tp.revenue)}
+      </div>
+      <div class="kpi kpi-net ${netCls}">
+        <span class="kpi-label">صافي الربح</span>
+        <span class="kpi-value">${esc(fmtMoney(t.net))}</span>
+        ${deltaHtml(t.net, tp.net)}
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">هامش الربح</span>
+        <span class="kpi-value">${t.margin.toFixed(1)}%</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">مصروفات الحجوزات</span>
+        <span class="kpi-value">${esc(fmtMoney(t.bookingExp))}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">مصروفات ثابتة (${t.months}ش)</span>
+        <span class="kpi-value">${esc(fmtMoney(t.fixed))}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">الضريبة</span>
+        <span class="kpi-value">${esc(fmtMoney(t.vat))}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">المُحصّل</span>
+        <span class="kpi-value ok">${esc(fmtMoney(t.collected))}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">المتبقّي</span>
+        <span class="kpi-value ${t.remaining > 0 ? 'rem' : ''}">${esc(fmtMoney(t.remaining))}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">متوسط قيمة الحجز</span>
+        <span class="kpi-value">${esc(fmtMoney(t.avgBooking))}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">متوسط الصافي/حجز</span>
+        <span class="kpi-value">${esc(fmtMoney(t.avgNet))}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">عدد الحجوزات</span>
+        <span class="kpi-value">${t.count}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">معدل الإلغاء</span>
+        <span class="kpi-value ${t.cancelRate > 0 ? 'rem' : ''}">${t.cancelRate.toFixed(1)}%</span>
+      </div>
+    </div>`;
+
+  // ----- التوزيع حسب الحالة (كل حجوزات الفترة) -----
   const byStatus = {};
-  for (const b of monthAll) {
+  for (const b of t.all) {
     const k = b.status || 'confirmed';
     byStatus[k] = (byStatus[k] || 0) + 1;
   }
@@ -1155,51 +1653,162 @@ function renderReport() {
       </div>`;
     }).join('');
 
-  // ----- توزيع حسب الباقة (للحجوزات غير الملغاة، بالعدد والإيراد) -----
+  // ----- الربح حسب الباقة (غير الملغاة): العدد، الإيراد، المصروفات، الصافي، الهامش% -----
   const byPkg = new Map();
-  for (const b of active) {
+  for (const b of t.active) {
     const name = (b.package || '').trim() || 'بدون باقة';
-    const cur = byPkg.get(name) || { count: 0, revenue: 0 };
+    const cur = byPkg.get(name) || { count: 0, revenue: 0, expenses: 0, net: 0 };
     cur.count += 1;
-    cur.revenue += bookingPrice(b);
+    cur.revenue += bookingRevenue(b);
+    cur.expenses += bookingExpenses(b);
+    cur.net += bookingNet(b);   // ملاحظة: صافي الباقة لا يشمل المصروفات الثابتة (توزَّع على مستوى الفترة)
     byPkg.set(name, cur);
   }
-  const pkgArr = [...byPkg.entries()].sort((a, b) => b[1].revenue - a[1].revenue);
-  const maxPkg = Math.max(1, ...pkgArr.map(([, v]) => v.count));
-  const pkgBars = pkgArr.map(([name, v]) => {
-    const pct = Math.round((v.count / maxPkg) * 100);
-    return `<div class="rb-row">
-      <span class="rb-label" title="${esc(name)}">${esc(name)}</span>
-      <span class="rb-track"><span class="rb-fill st-pkg" style="width:${pct}%"></span></span>
-      <span class="rb-val">${v.count}${v.revenue ? ` <small>(${esc(fmtMoney(v.revenue))})</small>` : ''}</span>
-    </div>`;
+  const pkgArr = [...byPkg.entries()].sort((a, b) => b[1].net - a[1].net);
+  const pkgRows = pkgArr.map(([name, v], i) => {
+    const margin = v.revenue > 0 ? (v.net / v.revenue) * 100 : 0;
+    const top = i === 0 && v.net > 0;   // تمييز الأعلى ربحية
+    const netClsP = v.net < 0 ? 'neg' : 'pos';
+    return `<tr class="${top ? 'is-top' : ''}">
+      <td class="pp-name">${top ? '⭐ ' : ''}${esc(name)}</td>
+      <td>${v.count}</td>
+      <td>${esc(fmtMoney(v.revenue))}</td>
+      <td>${esc(fmtMoney(v.expenses))}</td>
+      <td class="pp-net ${netClsP}">${esc(fmtMoney(v.net))}</td>
+      <td class="pp-margin">${margin.toFixed(1)}%</td>
+    </tr>`;
   }).join('');
+  const pkgTable = pkgArr.length ? `
+    <div class="pkg-profit-wrap">
+      <table class="pkg-profit-table">
+        <thead>
+          <tr>
+            <th>الباقة</th><th>العدد</th><th>الإيراد</th>
+            <th>المصروفات</th><th>الصافي</th><th>الهامش%</th>
+          </tr>
+        </thead>
+        <tbody>${pkgRows}</tbody>
+      </table>
+    </div>` : '<div class="report-empty">لا توجد حجوزات فعّالة في الفترة.</div>';
+
+  // ----- الأهداف الشهرية + الرسوم البيانية + أعمدة الربح حسب الباقة -----
+  const goals = goalsHtml(t);
+  const trend = trendChartHtml(from, to);
+  const pkgBars = pkgProfitBarsHtml(pkgArr);
 
   box.innerHTML = `
-    <div class="report-cards">
-      <div class="rep-card">
-        <span class="rep-label">عدد الحجوزات</span>
-        <span class="rep-value">${count}</span>
-      </div>
-      <div class="rep-card">
-        <span class="rep-label">إجمالي الإيراد</span>
-        <span class="rep-value">${esc(fmtMoney(revenue))}</span>
-      </div>
-      <div class="rep-card">
-        <span class="rep-label">المُحصّل</span>
-        <span class="rep-value ok">${esc(fmtMoney(collected))}</span>
-      </div>
-      <div class="rep-card">
-        <span class="rep-label">المتبقّي</span>
-        <span class="rep-value ${remaining > 0 ? 'rem' : ''}">${esc(fmtMoney(remaining))}</span>
-      </div>
+    <div class="report-actions">
+      <button type="button" id="btn-pl-print" class="btn btn-primary btn-sm">🧾 طباعة تقرير ربح وخسارة</button>
     </div>
-
+    ${kpis}
+    ${goals}
+    ${trend}
     <h4 class="report-h">التوزيع حسب الحالة</h4>
     <div class="report-bars">${statusBars}</div>
+    <h4 class="report-h">الربح حسب الباقة</h4>
+    ${pkgBars}
+    ${pkgTable}`;
 
-    <h4 class="report-h">التوزيع حسب الباقة</h4>
-    <div class="report-bars">${pkgBars}</div>`;
+  // زر تصدير/طباعة بيان الربح والخسارة للفترة الحالية
+  const plBtn = $('#btn-pl-print');
+  if (plBtn) plBtn.addEventListener('click', () => printProfitLoss(from, to, t));
+}
+
+/* ===================================================== */
+/* ---------- تصدير/طباعة تقرير ربح وخسارة ---------- */
+/* ===================================================== */
+
+/* يبني بيان ربح وخسارة منظّماً للفترة [from..to] ويفتحه في نافذة طباعة مستقلة منسّقة (RTL).
+   كل القيم عبر الدوال المحسوبة و fmtMoney. لا مكتبات خارجية.
+   البنية: الإيراد، ناقص الضريبة، ناقص مصروفات الحجوزات، ناقص المصروفات الثابتة، = صافي الربح، مع الهامش%. */
+function printProfitLoss(from, to, totals) {
+  const t = totals || periodTotals(from, to);
+  const biz = settings.biz || 'حجوزات عهود';
+  const printedAt = new Date().toLocaleString('en-GB');
+  // الإيراد الإجمالي (شامل الضريبة) = الإيراد الصافي + الضريبة (لعرض المسار كاملاً)
+  const gross = t.revenue + t.vat;
+  const netCls = t.net < 0 ? 'neg' : 'pos';
+
+  // صف بيان (تسمية + قيمة + صنف اختياري)
+  const row = (label, value, cls) =>
+    `<tr class="${cls || ''}"><td class="pl-l">${esc(label)}</td><td class="pl-v">${esc(fmtMoney(value))}</td></tr>`;
+  // صف فرعي بإشارة ناقص
+  const minus = (label, value) =>
+    `<tr class="pl-minus"><td class="pl-l">ناقص: ${esc(label)}</td><td class="pl-v">- ${esc(fmtMoney(value))}</td></tr>`;
+
+  const vatLine = settings.vatEnabled
+    ? `${row('إجمالي المبيعات (شامل الضريبة)', gross)}
+       ${minus(`ضريبة القيمة المضافة (${esc(String(settings.vatRate))}%)`, t.vat)}`
+    : '';
+
+  const statementRows = `
+    ${vatLine}
+    ${row('صافي الإيراد', t.revenue, 'pl-strong')}
+    ${minus('مصروفات الحجوزات', t.bookingExp)}
+    ${minus(`المصروفات الثابتة (${t.months} ${t.months === 1 ? 'شهر' : 'أشهر'})`, t.fixed)}
+    <tr class="pl-total ${netCls}"><td class="pl-l">= صافي الربح</td><td class="pl-v">${esc(fmtMoney(t.net))}</td></tr>
+    <tr class="pl-margin"><td class="pl-l">هامش الربح</td><td class="pl-v">${t.margin.toFixed(1)}%</td></tr>`;
+
+  // مؤشرات مساندة (المُحصّل/المتبقّي/العدد/الإلغاء)
+  const extraRows = `
+    ${row('المُحصّل من العملاء', t.collected)}
+    ${row('المتبقّي على العملاء', t.remaining)}
+    <tr><td class="pl-l">عدد الحجوزات</td><td class="pl-v">${t.count}</td></tr>
+    <tr><td class="pl-l">منها ملغاة</td><td class="pl-v">${t.cancelled} (${t.cancelRate.toFixed(1)}%)</td></tr>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8" />
+<title>تقرير ربح وخسارة — ${esc(biz)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Tahoma, system-ui, sans-serif; color: #1f2333; margin: 0; padding: 28px; background: #fff; }
+  .pl-head { text-align: center; border-bottom: 3px solid #7c3aed; padding-bottom: 14px; margin-bottom: 18px; }
+  .pl-head h1 { margin: 0; font-size: 22px; color: #6d28d9; }
+  .pl-head h2 { margin: 6px 0 0; font-size: 16px; font-weight: 600; color: #1f2333; }
+  .pl-period { font-size: 13px; color: #6b7280; margin-top: 6px; }
+  .pl-sec-title { font-size: 14px; font-weight: 700; color: #6d28d9; margin: 22px 0 8px; }
+  table.pl-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.pl-table td { padding: 9px 12px; border-bottom: 1px solid #e9e7f3; }
+  .pl-l { text-align: start; }
+  .pl-v { text-align: end; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .pl-minus .pl-l { color: #6b7280; padding-inline-start: 22px; }
+  .pl-minus .pl-v { color: #b91c1c; font-weight: 600; }
+  .pl-strong td { font-weight: 700; background: #f5f4fb; }
+  .pl-total td { font-size: 17px; font-weight: 800; border-top: 2px solid #7c3aed; border-bottom: 2px solid #7c3aed; }
+  .pl-total.pos td { color: #15803d; background: #dcfce7; }
+  .pl-total.neg td { color: #b91c1c; background: #fef2f2; }
+  .pl-margin td { color: #6b7280; font-weight: 600; }
+  .pl-foot { margin-top: 26px; font-size: 11px; color: #9ca3af; text-align: center; border-top: 1px solid #e9e7f3; padding-top: 10px; }
+  @media print { body { padding: 0; } .pl-noprint { display: none; } }
+</style></head>
+<body>
+  <div class="pl-head">
+    <h1>${esc(biz)}</h1>
+    <h2>تقرير الربح والخسارة</h2>
+    <div class="pl-period">الفترة: ${esc(from)} إلى ${esc(to)} • ${t.months} ${t.months === 1 ? 'شهر' : 'أشهر'}</div>
+  </div>
+
+  <div class="pl-sec-title">بيان الربح والخسارة</div>
+  <table class="pl-table"><tbody>${statementRows}</tbody></table>
+
+  <div class="pl-sec-title">مؤشرات مساندة</div>
+  <table class="pl-table"><tbody>${extraRows}</tbody></table>
+
+  <div class="pl-foot">طُبع في ${esc(printedAt)} — ${esc(biz)}</div>
+
+  <script>
+    window.addEventListener('load', function () {
+      setTimeout(function () { try { window.print(); } catch (e) {} }, 250);
+    });
+  <\/script>
+</body></html>`;
+
+  // افتح نافذة مستقلة واكتب فيها البيان (آمن إن مُنعت النوافذ المنبثقة)
+  const w = window.open('', '_blank');
+  if (!w) { toast('فعّل النوافذ المنبثقة لطباعة التقرير', 'err'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
 
 /* ---------- الإعدادات والنسخ الاحتياطي ---------- */
@@ -1242,6 +1851,90 @@ async function saveWorkSettings() {
   toast('تم حفظ ساعات العمل ✓', 'ok');
 }
 
+/* ---------- الإعدادات المالية ---------- */
+
+// حفظ إعدادات الضريبة (تفعيل + نسبة)
+async function saveVatSettings() {
+  settings.vatEnabled = !!$('#set-vat-enabled').checked;
+  const r = Number($('#set-vat-rate').value);
+  settings.vatRate = Number.isFinite(r) && r >= 0 ? r : 15;
+  await DB.put('settings', { key: 'vatEnabled', value: settings.vatEnabled });
+  await DB.put('settings', { key: 'vatRate', value: settings.vatRate });
+  // أعِد عرض القيمة المُطهَّرة وحدّث الواجهات المعتمدة على الضريبة
+  const vr = $('#set-vat-rate'); if (vr) vr.value = settings.vatRate;
+  updateRemainingLine();
+  refreshAll();
+  toast('تم حفظ إعدادات الضريبة ✓', 'ok');
+}
+
+// حفظ الأهداف الشهرية (الإيراد والربح)
+async function saveTargetSettings() {
+  settings.targetRevenue = Math.max(0, Number($('#set-target-revenue').value) || 0);
+  settings.targetProfit = Math.max(0, Number($('#set-target-profit').value) || 0);
+  await DB.put('settings', { key: 'targetRevenue', value: settings.targetRevenue });
+  await DB.put('settings', { key: 'targetProfit', value: settings.targetProfit });
+  toast('تم حفظ الأهداف الشهرية ✓', 'ok');
+}
+
+// حفظ حد هامش الربح المنخفض
+async function saveLowMarginSetting() {
+  const t = Number($('#set-low-margin').value);
+  settings.lowMarginThreshold = Number.isFinite(t) && t >= 0 ? t : 20;
+  await DB.put('settings', { key: 'lowMarginThreshold', value: settings.lowMarginThreshold });
+  const lm = $('#set-low-margin'); if (lm) lm.value = settings.lowMarginThreshold;
+  updateRemainingLine();
+  refreshAll();
+  toast('تم حفظ حد الهامش المنخفض ✓', 'ok');
+}
+
+// حفظ مصفوفة المصروفات الثابتة في قاعدة البيانات
+async function persistFixedExpenses() {
+  await DB.put('settings', { key: 'fixedExpenses', value: settings.fixedExpenses });
+}
+
+// مجموع المصروفات الثابتة الشهرية
+function fixedExpensesTotal() {
+  return (settings.fixedExpenses || []).reduce((s, x) => s + (Math.max(0, Number(x.amount) || 0)), 0);
+}
+
+// عرض قائمة المصروفات الثابتة ومجموعها الشهري في الإعدادات
+function renderFixedExpenses() {
+  const list = $('#fixed-exp-list');
+  if (!list) return;
+  const items = settings.fixedExpenses || [];
+  list.innerHTML = items.length
+    ? items.map((x) => `
+      <div class="fx-item">
+        <span class="fx-n">${esc(x.name) || '—'}</span>
+        <span class="fx-a">${esc(fmtMoney(x.amount))}</span>
+        <button class="icon-btn" onclick="removeFixedExpense('${esc(x.id)}')">🗑</button>
+      </div>`).join('')
+    : '<p class="hint">لا توجد مصروفات ثابتة بعد.</p>';
+  const tot = $('#fixed-exp-total');
+  if (tot) tot.innerHTML = `المجموع الشهري: <b>${esc(fmtMoney(fixedExpensesTotal()))}</b>`;
+}
+
+// إضافة عنصر مصروف ثابت (اسم + مبلغ)
+async function addFixedExpense() {
+  const name = $('#fx-name').value.trim();
+  const amount = Math.max(0, Number($('#fx-amount').value) || 0);
+  if (!name) { toast('اكتب اسم المصروف', 'err'); return; }
+  if (amount <= 0) { toast('أدخل مبلغاً صحيحاً', 'err'); return; }
+  settings.fixedExpenses = (settings.fixedExpenses || []).concat({ id: uid(), name, amount });
+  await persistFixedExpenses();
+  $('#fx-name').value = '';
+  $('#fx-amount').value = '';
+  renderFixedExpenses();
+  toast('تمت إضافة المصروف ✓', 'ok');
+}
+
+// حذف عنصر مصروف ثابت بالمعرّف
+async function removeFixedExpense(id) {
+  settings.fixedExpenses = (settings.fixedExpenses || []).filter((x) => x.id !== id);
+  await persistFixedExpenses();
+  renderFixedExpenses();
+}
+
 function download(filename, content, type) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -1258,11 +1951,11 @@ function exportJSON() {
 }
 
 function exportCSV() {
-  const headers = ['الاسم', 'الجوال', 'التاريخ', 'اليوم', 'الوقت', 'الباقة', 'السعر', 'المدفوع', 'المتبقّي', 'المدة (ساعات)', 'حالة الدفع', 'الحالة', 'ملاحظات'];
+  const headers = ['الاسم', 'الجوال', 'التاريخ', 'اليوم', 'الوقت', 'الباقة', 'السعر', 'الخصم', 'الضريبة', 'المصروفات', 'الصافي', 'الهامش%', 'المدفوع', 'المتبقّي', 'المدة (ساعات)', 'حالة الدفع', 'الحالة', 'ملاحظات'];
   const lines = bookings
     .slice()
     .sort((a, b) => ((a.date || '') + (a.time || '')).localeCompare((b.date || '') + (b.time || '')))
-    .map((b) => [b.name, b.phone, b.date, weekdayName(b.date), b.time, b.package, bookingPrice(b), bookingPaid(b), bookingRemaining(b), bookingDuration(b) / 60, PAY_LABEL[paymentStatus(b)] || '', STATUS_LABEL[b.status] || '', b.notes]
+    .map((b) => [b.name, b.phone, b.date, weekdayName(b.date), b.time, b.package, bookingPrice(b), bookingDiscount(b), Math.round(bookingVat(b)), bookingExpenses(b), Math.round(bookingNet(b)), bookingMargin(b).toFixed(1), bookingPaid(b), bookingRemaining(b), bookingDuration(b) / 60, PAY_LABEL[paymentStatus(b)] || '', STATUS_LABEL[b.status] || '', b.notes]
       .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
   // BOM لضمان ظهور العربية في Excel
   const csv = '﻿' + headers.join(',') + '\n' + lines.join('\n');
@@ -1348,6 +2041,7 @@ window.deleteBooking = deleteBooking;
 window.sendWhatsApp = sendWhatsApp;
 window.removePackage = removePackage;
 window.notifyBooking = notifyBooking;
+window.removeFixedExpense = removeFixedExpense;
 
 /* انطلاق */
 init().catch((err) => {

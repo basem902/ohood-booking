@@ -115,6 +115,9 @@ small { font-size: .7em; font-weight: 500; }
 .stat-value { font-size: 28px; font-weight: 700; color: var(--primary-d); }
 .stat-sub { font-size: 12px; font-weight: 600; color: var(--danger); }
 .stat-sub:empty { display: none; }
+/* صافي الربح في البطاقة العلوية: أخضر للموجب وأحمر للسالب */
+.stat-sub.pos { color: var(--ok); }
+.stat-sub.neg { color: var(--danger); }
 
 .layout {
   display: grid;
@@ -245,6 +248,32 @@ tr.cancelled .cell-name { text-decoration: line-through; }
 .pay-badge.partial { background: var(--warn-bg); color: var(--warn-tx); }
 .pay-badge.unpaid { background: #fee2e2; color: #b91c1c; }
 .pay-rem { font-size: 11.5px; font-weight: 600; color: var(--danger); }
+
+/* ===== الصافي والهامش% داخل صف القائمة ===== */
+.net-line-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px;
+  font-size: 11.5px; font-weight: 600;
+}
+.net-line-row .nlr-net { color: var(--muted); }
+.net-line-row .nlr-margin {
+  font-size: 11px; font-weight: 700; padding: 1px 7px;
+  border-radius: 999px; background: var(--bg); border: 1px solid var(--border);
+}
+.net-line-row.pos .nlr-net { color: #15803d; }
+.net-line-row.pos .nlr-margin { background: #dcfce7; color: #15803d; border-color: #86efac; }
+.net-line-row.low .nlr-net { color: var(--warn-tx); }
+.net-line-row.low .nlr-margin { background: var(--warn-bg); color: var(--warn-tx); border-color: var(--warn-bd); }
+.net-line-row.neg .nlr-net { color: #b91c1c; }
+.net-line-row.neg .nlr-margin { background: var(--danger-bg); color: #b91c1c; border-color: var(--danger); }
+/* مؤشّر «ربح منخفض» */
+.net-line-row .nlr-warn {
+  font-size: 10.5px; font-weight: 700; color: var(--warn-tx);
+  background: var(--warn-bg); border: 1px solid var(--warn-bd);
+  padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+}
+/* تمييز صف الحجز المنخفض الربح بلون خفيف (دون كسر صفوف الملغاة/اليوم) */
+.bookings-table tbody tr.is-low-margin { background: #fff7ed; }
+.bookings-table tbody tr.is-low-margin:hover { background: #ffedd5; }
 
 /* ===== الحالة الفارغة ===== */
 .empty { text-align: center; padding: 48px 16px; color: var(--muted); }
@@ -427,6 +456,45 @@ tr.cancelled .cell-name { text-decoration: line-through; }
   border-radius: 10px; padding: 9px 13px; margin-bottom: 14px;
 }
 .remaining-line b { font-weight: 700; }
+.remaining-line .rl-extra { font-size: 12px; font-weight: 600; color: var(--muted); }
+
+/* سطر «الصافي» الحي: صافي الربح والهامش% للحجز الحالي */
+.net-line {
+  font-size: 14px; font-weight: 600;
+  border: 1.5px solid var(--border);
+  border-radius: 10px; padding: 9px 13px; margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.net-line b { font-weight: 700; }
+.net-line .nl-margin {
+  font-size: 12px; font-weight: 700; padding: 1px 8px;
+  border-radius: 999px; background: rgba(255,255,255,.6);
+}
+.net-line .nl-extra { font-size: 12px; font-weight: 600; color: var(--muted); }
+/* الصافي موجب وهامش جيّد */
+.net-line.pos { color: #15803d; background: #dcfce7; border-color: #86efac; }
+/* الصافي موجب لكن هامش منخفض */
+.net-line.low { color: var(--warn-tx); background: var(--warn-bg); border-color: var(--warn-bd); }
+/* الصافي سالب (خسارة) */
+.net-line.neg { color: #b91c1c; background: var(--danger-bg); border-color: var(--danger); }
+
+/* ===== المصروفات الثابتة الشهرية (الإعدادات) ===== */
+.fixed-exp-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.fx-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: var(--bg); border-radius: 10px;
+}
+.fx-item .fx-n { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-item .fx-a { color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.fx-add { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; }
+.fx-add input { font-family: inherit; padding: 9px 11px; border: 1.5px solid var(--border); border-radius: 9px; background: #fbfbfe; }
+.fx-add input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-l); }
+.fixed-exp-total {
+  font-size: 13.5px; font-weight: 600; color: var(--primary-d);
+  margin-top: 10px;
+}
+.fixed-exp-total:empty { display: none; }
+.fixed-exp-total b { font-weight: 700; }
 
 /* ===== ساعات العمل (الإعدادات) ===== */
 .workdays { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -456,8 +524,8 @@ tr.cancelled .cell-name { text-decoration: line-through; }
 .steps { padding-inline-start: 20px; font-size: 14px; }
 .steps li { margin-bottom: 8px; }
 
-/* ===== التقارير الشهرية ===== */
-.modal-box-wide { max-width: 560px; }
+/* ===== التقارير (لوحة تحليلية بفترة زمنية) ===== */
+.modal-box-wide { max-width: 680px; }
 .report-empty {
   text-align: center; padding: 28px 12px; color: var(--muted);
   font-size: 14px; font-weight: 600;
@@ -502,6 +570,165 @@ tr.cancelled .cell-name { text-decoration: line-through; }
 .rb-fill.st-pkg { background: linear-gradient(90deg, var(--primary), var(--accent)); }
 .rb-val { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; }
 .rb-val small { font-size: 11px; font-weight: 600; color: var(--muted); }
+
+/* ===== لوحة التقارير: الفترة والمؤشرات ===== */
+
+/* اختصارات الفترة السريعة */
+.report-quick { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.rq-btn {
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  padding: 7px 13px; border-radius: 999px; cursor: pointer;
+  border: 1.5px solid var(--border); background: var(--bg); color: #4b4f63;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.rq-btn:hover { border-color: var(--primary); color: var(--primary-d); }
+.rq-btn.is-active {
+  background: linear-gradient(120deg, var(--primary), var(--accent));
+  color: #fff; border-color: transparent;
+}
+.report-range { margin-bottom: 6px; }
+
+/* شبكة المؤشرات (KPIs) */
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 10px; margin: 6px 0 4px;
+}
+.kpi {
+  background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: 12px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+}
+.kpi-label { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-value { font-size: 16px; font-weight: 700; color: var(--primary-d); }
+.kpi-value.ok { color: var(--ok); }
+.kpi-value.rem { color: var(--danger); }
+/* بطاقتا الإيراد والصافي أبرز */
+.kpi-rev { border-color: var(--primary-l); background: var(--primary-l); }
+.kpi-rev .kpi-value { color: var(--primary-d); }
+.kpi-net.pos { border-color: #86efac; background: #dcfce7; }
+.kpi-net.pos .kpi-value { color: #15803d; }
+.kpi-net.low { border-color: var(--warn-bd); background: var(--warn-bg); }
+.kpi-net.low .kpi-value { color: var(--warn-tx); }
+.kpi-net.neg { border-color: var(--danger); background: var(--danger-bg); }
+.kpi-net.neg .kpi-value { color: #b91c1c; }
+
+/* شارة تغيّر المقارنة ↑/↓ */
+.rep-delta { font-size: 11.5px; font-weight: 700; }
+.rep-delta.up { color: #15803d; }
+.rep-delta.down { color: #b91c1c; }
+.rep-delta.neu { color: var(--muted); }
+
+/* جدول الربح حسب الباقة */
+.pkg-profit-wrap { overflow-x: auto; }
+.pkg-profit-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.pkg-profit-table th, .pkg-profit-table td {
+  padding: 8px 9px; text-align: center; white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.pkg-profit-table th {
+  font-size: 11.5px; color: var(--muted); font-weight: 700;
+  background: var(--bg); position: sticky; top: 0;
+}
+.pkg-profit-table .pp-name { text-align: start; font-weight: 700; color: var(--text); }
+.pkg-profit-table .pp-net.pos { color: #15803d; font-weight: 700; }
+.pkg-profit-table .pp-net.neg { color: #b91c1c; font-weight: 700; }
+.pkg-profit-table .pp-margin { color: var(--muted); font-weight: 600; }
+.pkg-profit-table tr.is-top { background: var(--primary-l); }
+.pkg-profit-table tr.is-top .pp-name { color: var(--primary-d); }
+
+/* زر تصدير تقرير ربح وخسارة أعلى لوحة التقارير */
+.report-actions { display: flex; justify-content: flex-start; margin: 4px 0 10px; }
+
+/* ===== الأهداف الشهرية (أشرطة تقدّم) ===== */
+.goals-wrap { display: flex; flex-direction: column; gap: 12px; }
+.goals-note { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.goal-row { display: flex; flex-direction: column; gap: 5px; }
+.goal-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.goal-label { font-size: 13px; font-weight: 600; color: #4b4f63; }
+.goal-check { font-size: 11px; font-weight: 700; color: var(--ok); }
+.goal-pct { font-size: 13px; font-weight: 700; color: var(--primary-d); }
+.goal-pct.reached { color: var(--ok); }
+.goal-pct.neg { color: var(--danger); }
+.goal-track {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 999px; height: 14px; overflow: hidden;
+}
+.goal-fill {
+  display: block; height: 100%; border-radius: 999px; min-width: 3px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  transition: width .35s ease;
+}
+.goal-fill.reached { background: linear-gradient(90deg, var(--ok), #34d399); }
+.goal-fill.neg { background: var(--danger); }
+.goal-sub { font-size: 12px; font-weight: 700; color: var(--text); }
+.goal-sub .goal-of { font-weight: 600; color: var(--muted); }
+
+/* ===== الرسم البياني للاتجاه الشهري (أعمدة عمودية مجمّعة) ===== */
+.trend-chart {
+  border: 1.5px solid var(--border); border-radius: 12px;
+  padding: 14px 12px 10px; background: var(--bg);
+}
+.tc-cols {
+  display: flex; align-items: flex-end; justify-content: space-around;
+  gap: 6px; height: 170px;
+}
+.tc-col {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  align-items: center; gap: 4px; height: 100%;
+}
+.tc-bars {
+  flex: 1; width: 100%; display: flex; align-items: flex-end;
+  justify-content: center; gap: 3px; min-height: 0;
+}
+.tc-bar {
+  width: 28%; max-width: 22px; min-width: 6px;
+  border-radius: 5px 5px 0 0; transition: height .35s ease;
+}
+.tc-bar.tc-rev { background: var(--primary); }
+.tc-bar.tc-exp { background: var(--accent); }
+.tc-bar.tc-net.pos { background: var(--ok); }
+.tc-bar.tc-net.neg { background: var(--danger); }
+.tc-net-val { font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+.tc-net-val.pos { color: #15803d; }
+.tc-net-val.neg { color: #b91c1c; }
+.tc-label {
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%; text-align: center;
+}
+/* مفتاح ألوان الرسم */
+.tc-legend {
+  display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
+  margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border);
+  font-size: 11.5px; color: var(--muted);
+}
+.tc-legend .tcl { display: inline-flex; align-items: center; gap: 5px; }
+.tc-legend .tcl-dot { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.tc-legend .tcl-dot.tc-rev { background: var(--primary); }
+.tc-legend .tcl-dot.tc-exp { background: var(--accent); }
+.tc-legend .tcl-dot.tc-net.pos { background: var(--ok); }
+
+/* ===== أعمدة أفقية: الربح حسب الباقة ===== */
+.pkg-profit-bars { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.ppb-row { display: grid; grid-template-columns: minmax(72px, 30%) 1fr auto; align-items: center; gap: 10px; }
+.ppb-name {
+  font-size: 12.5px; font-weight: 600; color: #4b4f63;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.ppb-track { background: var(--bg); border: 1px solid var(--border); border-radius: 999px; height: 13px; overflow: hidden; }
+.ppb-fill { display: block; height: 100%; border-radius: 999px; min-width: 3px; transition: width .35s ease; }
+.ppb-fill.pos { background: linear-gradient(90deg, var(--primary), var(--accent)); }
+.ppb-fill.neg { background: var(--danger); }
+.ppb-val { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.ppb-val.pos { color: #15803d; }
+.ppb-val.neg { color: #b91c1c; }
+
+@media (max-width: 560px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .kpi-value { font-size: 15px; }
+  .tc-cols { height: 140px; }
+  .tc-net-val { display: none; }
+}
 
 /* ===== التوست ===== */
 .toast {
