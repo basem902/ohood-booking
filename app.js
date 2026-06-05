@@ -74,11 +74,13 @@ let settings = {
   vatEnabled: false,           // تفعيل ضريبة القيمة المضافة
   vatRate: 15,                 // نسبة الضريبة %
   fixedExpenses: [],           // مصروفات ثابتة شهرية [{id, name, amount}]
+  addons: [],                  // كتالوج الإضافات [{id, name, clientPrice, costPrice, type:'fixed'|'hourly'}]
   targetRevenue: 0,            // هدف الإيراد الشهري
   targetProfit: 0,             // هدف صافي الربح الشهري
   lowMarginThreshold: 20,      // حد هامش الربح المنخفض %
 };
 let editingId = null;
+let formAddons = [];   // لقطات الإضافات المختارة في النموذج {id,name,type,clientPrice,costPrice,count}
 
 /* ---------- حالة العرض والتقويم ---------- */
 let viewMode = 'list';         // 'list' أو 'calendar'
@@ -101,6 +103,7 @@ async function init() {
   $('#f-duration').value = settings.defaultDuration / 60;
 
   bindEvents();
+  refreshFormAddonSelect();   // املأ قائمة اختيار الإضافات في النموذج من الكتالوج
   refreshAll();
   refreshDayWarning();
   // مؤقّت تذكير المواعيد عبر إشعارات المتصفح (يعمل طالما الصفحة مفتوحة)
@@ -126,6 +129,7 @@ async function loadSettings() {
   const vatEnabled = await DB.get('settings', 'vatEnabled');
   const vatRate = await DB.get('settings', 'vatRate');
   const fixedExpenses = await DB.get('settings', 'fixedExpenses');
+  const addons = await DB.get('settings', 'addons');
   const targetRevenue = await DB.get('settings', 'targetRevenue');
   const targetProfit = await DB.get('settings', 'targetProfit');
   const lowMarginThreshold = await DB.get('settings', 'lowMarginThreshold');
@@ -150,6 +154,18 @@ async function loadSettings() {
     settings.fixedExpenses = fixedExpenses.value
       .filter((x) => x && typeof x === 'object')
       .map((x) => ({ id: x.id || uid(), name: String(x.name || ''), amount: Math.max(0, Number(x.amount) || 0) }));
+  }
+  // كتالوج الإضافات (تطهير العناصر للعقد {id,name,clientPrice,costPrice,type})
+  if (addons && Array.isArray(addons.value)) {
+    settings.addons = addons.value
+      .filter((x) => x && typeof x === 'object')
+      .map((x) => ({
+        id: x.id || uid(),
+        name: String(x.name || ''),
+        clientPrice: Math.max(0, Number(x.clientPrice) || 0),
+        costPrice: Math.max(0, Number(x.costPrice) || 0),
+        type: x.type === 'hourly' ? 'hourly' : 'fixed',
+      }));
   }
   if (targetRevenue && targetRevenue.value != null) {
     settings.targetRevenue = Math.max(0, Number(targetRevenue.value) || 0);
@@ -196,6 +212,7 @@ function applyFinanceSettingsToUI() {
   const tp = $('#set-target-profit'); if (tp) tp.value = settings.targetProfit || 0;
   const lm = $('#set-low-margin'); if (lm) lm.value = settings.lowMarginThreshold != null ? settings.lowMarginThreshold : 20;
   renderFixedExpenses();
+  renderAddons();
 }
 
 async function loadPackages() {
@@ -224,13 +241,16 @@ function bindEvents() {
   $('#btn-reset').addEventListener('click', resetForm);
   $('#f-date').addEventListener('change', refreshDayWarning);
   $('#f-time').addEventListener('change', refreshDayWarning);
-  $('#f-duration').addEventListener('input', refreshDayWarning);
+  // المدة تؤثّر على التعارض وعلى الإضافات بالساعة ⇒ أعد عرض الإضافات والسطرين الحيّين
+  $('#f-duration').addEventListener('input', () => { refreshDayWarning(); renderFormAddons(); });
   $('#f-package').addEventListener('input', onPackageInput);
-  // تحديث سطري المتبقّي والصافي حيًّا عند تغيير السعر/الدفعة/المصروفات/الخصم
+  // تحديث سطري المتبقّي والصافي حيًّا عند تغيير السعر/الدفعة/الخصم
   $('#f-price').addEventListener('input', updateRemainingLine);
   $('#f-paid').addEventListener('input', updateRemainingLine);
-  $('#f-expenses').addEventListener('input', updateRemainingLine);
   $('#f-discount').addEventListener('input', updateRemainingLine);
+  // اختيار الإضافات في النموذج
+  $('#f-addon-select').addEventListener('change', updateFormAddonCountVisibility);
+  $('#f-addon-add').addEventListener('click', addFormAddon);
 
   $('#search').addEventListener('input', renderList);
   // تغيير النطاق الزمني يلغي تصفية اليوم المحدّد من التقويم
@@ -289,6 +309,7 @@ function bindEvents() {
   $('#set-target-profit').addEventListener('change', saveTargetSettings);
   $('#set-low-margin').addEventListener('change', saveLowMarginSetting);
   $('#fx-add-btn').addEventListener('click', addFixedExpense);
+  $('#ao-add-btn').addEventListener('click', addAddon);
 
   // إشعارات التذكير
   $('#btn-notify').addEventListener('click', enableNotifications);
@@ -319,9 +340,6 @@ async function onSave(e) {
   // المدة تُدخَل بالساعات وتُخزَّن بالدقائق؛ إن كان الحقل فارغاً نستخدم المدة الافتراضية (دقائق)
   const duration = durationFieldMinutes();
   const paidAmount = Math.max(0, Number($('#f-paid').value) || 0);
-  // الحقول المالية الجديدة (افتراضها 0/فارغ ⇒ توافق رجعي)
-  const expenses = Math.max(0, Number($('#f-expenses').value) || 0);
-  const expenseNote = $('#f-expense-note').value.trim();
   const discount = Math.max(0, Number($('#f-discount').value) || 0);
   const status = $('#f-status').value;
 
@@ -330,6 +348,9 @@ async function onSave(e) {
     const clash = findConflicts(date, time, duration, editingId).length > 0;
     if (clash) { toast('يوجد تعارض مع موعد آخر في نفس الوقت', 'err'); return; }
   }
+
+  // السجل الحالي عند التعديل (للحفاظ على الحقول المُدارة من صفحة التفاصيل)
+  const existing = editingId ? bookings.find((b) => b.id === editingId) : null;
 
   const record = {
     id: editingId || uid(),
@@ -341,12 +362,17 @@ async function onSave(e) {
     price,
     duration,
     paidAmount,
-    expenses,
-    expenseNote,
     discount,
+    // لقطة الإضافات المختارة في النموذج (نسخة مستقلة)
+    addons: formAddons.map((a) => ({ ...a })),
+    // المصروفات المُفصّلة تُدار حصرياً من صفحة التفاصيل ⇒ احتفظ بها كما هي عند التعديل
+    expenseItems: existing && Array.isArray(existing.expenseItems) ? existing.expenseItems : [],
+    // الحقل القديم للمصروفات يبقى للتوافق الرجعي (لا يُمسّ من النموذج)
+    expenses: existing && existing.expenses != null ? existing.expenses : 0,
+    expenseNote: existing ? (existing.expenseNote || '') : '',
     status,
     notes: $('#f-notes').value.trim(),
-    createdAt: editingId ? (bookings.find((b) => b.id === editingId)?.createdAt || Date.now()) : Date.now(),
+    createdAt: editingId ? (existing?.createdAt || Date.now()) : Date.now(),
   };
 
   await DB.put('bookings', record);
@@ -371,17 +397,28 @@ function editBooking(id) {
   $('#f-duration').value = (b.duration != null ? b.duration : settings.defaultDuration) / 60;
   $('#f-paid').value = (b.paidAmount != null ? b.paidAmount : 0);
   // الحقول المالية الجديدة (الحجوزات القديمة بلا هذه الحقول ⇒ فارغة/أصفار)
-  $('#f-expenses').value = (b.expenses != null && Number(b.expenses) > 0) ? b.expenses : '';
-  $('#f-expense-note').value = b.expenseNote || '';
   $('#f-discount').value = (b.discount != null && Number(b.discount) > 0) ? b.discount : '';
   $('#f-status').value = b.status || 'confirmed';
   $('#f-notes').value = b.notes || '';
+
+  // حمّل لقطات الإضافات المختارة (نسخة مستقلة) واعرضها
+  formAddons = Array.isArray(b.addons)
+    ? b.addons.map((a) => ({
+      id: a.id,
+      name: String(a.name || ''),
+      type: a.type === 'hourly' ? 'hourly' : 'fixed',
+      clientPrice: Math.max(0, Number(a.clientPrice) || 0),
+      costPrice: Math.max(0, Number(a.costPrice) || 0),
+      count: Math.max(1, Math.round(Number(a.count) || 1)),
+    }))
+    : [];
 
   $('#form-title').textContent = '✏️ تعديل الحجز';
   $('#btn-save').textContent = 'حفظ التعديل';
   $('#btn-reset').hidden = false;
   onPackageInput();        // حدّث تلميح محتوى الباقة وفق الباقة المختارة
-  updateRemainingLine();   // أظهر سطر المتبقّي وفق السعر/الدفعة المعبّأة
+  refreshFormAddonSelect();
+  renderFormAddons();      // اعرض الإضافات المحمّلة (تستدعي updateRemainingLine)
   refreshDayWarning();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -405,14 +442,16 @@ function resetForm() {
   $('#f-duration').value = settings.defaultDuration / 60;   // المدة الافتراضية (ساعات)
   $('#f-paid').value = '';
   // تصفير الحقول المالية الجديدة
-  $('#f-expenses').value = '';
-  $('#f-expense-note').value = '';
   $('#f-discount').value = '';
+  // تفريغ الإضافات المختارة
+  formAddons = [];
+  const cnt = $('#f-addon-count'); if (cnt) { cnt.hidden = true; cnt.value = '1'; }
+  const aSel = $('#f-addon-select'); if (aSel) aSel.value = '';
   $('#form-title').textContent = '➕ حجز جديد';
   $('#btn-save').textContent = 'حفظ الحجز';
   $('#btn-reset').hidden = true;
   onPackageInput();        // أخفِ تلميح محتوى الباقة بعد التفريغ
-  updateRemainingLine();   // أخفِ سطر المتبقّي بعد التفريغ
+  renderFormAddons();      // أعد عرض الإضافات (فارغة) وحدّث السطرين الحيّين
   refreshDayWarning();
 }
 
@@ -457,6 +496,50 @@ function bookingPrice(b) {
   return Number.isFinite(p) && p > 0 ? p : 0;
 }
 
+/* ---------- الإضافات: دوال محسوبة (الدقة حرجة — أموال) ----------
+   كتالوج الإضافات في settings.addons، ولقطات الإضافات المختارة في b.addons.
+   كل الحقول افتراضها 0/[] ⇒ توافق رجعي تام مع الحجوزات القديمة. */
+
+// ساعات الحجز (للإضافات بالساعة) = المدة بالدقائق / 60
+function hoursOf(b) {
+  return bookingDuration(b) / 60;
+}
+
+// قيمة إضافة واحدة على العميل: بالساعة ⇒ السعر×الساعات×العدد، وإلا ⇒ السعر
+function addonClient(a, b) {
+  const price = Number(a && a.clientPrice) || 0;
+  if (a && a.type === 'hourly') {
+    const count = Number(a.count) || 1;
+    return price * hoursOf(b) * count;
+  }
+  return price;
+}
+
+// تكلفة إضافة واحدة عليك: بالساعة ⇒ التكلفة×الساعات×العدد، وإلا ⇒ التكلفة
+function addonCost(a, b) {
+  const cost = Number(a && a.costPrice) || 0;
+  if (a && a.type === 'hourly') {
+    const count = Number(a.count) || 1;
+    return cost * hoursOf(b) * count;
+  }
+  return cost;
+}
+
+// إجمالي ما على العميل من كل إضافات الحجز
+function bookingAddonsClient(b) {
+  return ((b && b.addons) || []).reduce((s, a) => s + addonClient(a, b), 0);
+}
+
+// إجمالي تكلفة كل إضافات الحجز عليك
+function bookingAddonsCost(b) {
+  return ((b && b.addons) || []).reduce((s, a) => s + addonCost(a, b), 0);
+}
+
+// مجموع بنود المصروفات اليدوية المُفصّلة (تُدار من صفحة التفاصيل لاحقاً)
+function expenseItemsTotal(b) {
+  return ((b && b.expenseItems) || []).reduce((s, x) => s + Math.max(0, Number(x && x.amount) || 0), 0);
+}
+
 /* ---------- العقد المالي: دوال محسوبة لكل حجز ----------
    تُعرَّف مرة واحدة وتُستخدم في كل مكان (لا تكرار للحساب).
    كل الحقول الجديدة افتراضها 0 ⇒ توافق رجعي تام مع الحجوزات القديمة. */
@@ -466,9 +549,9 @@ function bookingDiscount(b) {
   return Math.max(0, Number(b && b.discount) || 0);
 }
 
-// الإجمالي بعد الخصم = ما على العميل
+// الإجمالي بعد الخصم = ما على العميل = الباقة + الإضافات (على العميل) - الخصم
 function bookingTotal(b) {
-  return Math.max(0, bookingPrice(b) - bookingDiscount(b));
+  return Math.max(0, bookingPrice(b) + bookingAddonsClient(b) - bookingDiscount(b));
 }
 
 // الضريبة المُستخرَجة من إجمالي شامل الضريبة (إن كانت مفعّلة)
@@ -482,9 +565,9 @@ function bookingRevenue(b) {
   return bookingTotal(b) - bookingVat(b);
 }
 
-// مصروفات الحجز المباشرة (افتراضياً 0)
+// مصروفات الحجز المباشرة = تكلفة الإضافات + بنود المصروفات اليدوية + (الحقل القديم للتوافق الرجعي)
 function bookingExpenses(b) {
-  return Math.max(0, Number(b && b.expenses) || 0);
+  return bookingAddonsCost(b) + expenseItemsTotal(b) + Math.max(0, Number(b && b.expenses) || 0);
 }
 
 // صافي الربح = الإيراد الصافي - مصروفات الحجز
@@ -521,13 +604,15 @@ function fmtMoney(n) {
 }
 
 /* بناء كائن حجز مؤقّت من قيم النموذج الحالية لإعادة استخدام الدوال المحسوبة.
-   يضمن تطابق حسابات الواجهة الحيّة مع منطق الحفظ والتقارير. */
+   يضمن تطابق حسابات الواجهة الحيّة مع منطق الحفظ والتقارير.
+   يشمل الإضافات المختارة (formAddons) والمدة الحالية لتُحسب الإضافات بالساعة صحيحاً. */
 function formBookingDraft() {
   return {
     price: Number($('#f-price').value) || 0,
     discount: Math.max(0, Number($('#f-discount') && $('#f-discount').value) || 0),
-    expenses: Math.max(0, Number($('#f-expenses') && $('#f-expenses').value) || 0),
     paidAmount: Math.max(0, Number($('#f-paid').value) || 0),
+    duration: durationFieldMinutes(),
+    addons: formAddons,
   };
 }
 
@@ -747,7 +832,8 @@ function renderStats() {
   const active = bookings.filter((b) => b.status !== 'cancelled');
   const todayCount = active.filter((b) => b.date === today).length;
   const upcoming = active.filter((b) => b.date >= today).length;
-  const revenue = active.reduce((s, b) => s + bookingPrice(b), 0);
+  // قيمة الحجوزات = إجمالي الإيراد الصافي من الضريبة (يشمل الإضافات عبر bookingRevenue)
+  const revenue = active.reduce((s, b) => s + bookingRevenue(b), 0);
   const remaining = active.reduce((s, b) => s + bookingRemaining(b), 0);
   // صافي ربح الحجوزات غير الملغاة (مجموع bookingNet لكل حجز)
   const net = active.reduce((s, b) => s + bookingNet(b), 0);
@@ -842,9 +928,12 @@ function renderList() {
     const netCls = net < 0 ? 'neg' : (isLow ? 'low' : 'pos');
     return `<tr class="${b.status}${isLow ? ' is-low-margin' : ''}">
       <td>
-        <span class="cell-name">${esc(b.name)}</span>
-        ${b.phone ? `<span class="cell-sub">${esc(b.phone)}</span>` : ''}
-        ${b.notes ? `<span class="cell-sub" title="${esc(b.notes)}">📝 ${esc(b.notes.slice(0, 30))}${b.notes.length > 30 ? '…' : ''}</span>` : ''}
+        <button type="button" class="cell-open" title="عرض التفاصيل" onclick="openBookingDetails('${b.id}')">
+          <span class="cell-name">${esc(b.name)}</span>
+          ${b.phone ? `<span class="cell-sub">${esc(b.phone)}</span>` : ''}
+          ${(Array.isArray(b.addons) && b.addons.length) ? `<span class="cell-sub" title="عدد الإضافات">🧩 ${b.addons.length} إضافة</span>` : ''}
+          ${b.notes ? `<span class="cell-sub" title="${esc(b.notes)}">📝 ${esc(b.notes.slice(0, 30))}${b.notes.length > 30 ? '…' : ''}</span>` : ''}
+        </button>
       </td>
       <td>
         ${esc(b.date)}
@@ -867,10 +956,10 @@ function renderList() {
       <td><span class="badge ${b.status}">${STATUS_LABEL[b.status] || ''}</span></td>
       <td class="col-actions">
         <div class="row-actions">
-          <button class="a-edit" title="تعديل" onclick="editBooking('${b.id}')">✏️</button>
-          <button class="a-bell" title="تذكير بإشعار" onclick="notifyBooking('${b.id}')">🔔</button>
-          ${b.phone ? `<button class="a-wa" title="تذكير واتساب" onclick="sendWhatsApp('${b.id}')">💬</button>` : ''}
-          <button class="a-del" title="حذف" onclick="deleteBooking('${b.id}')">🗑</button>
+          <button class="a-edit" title="تعديل" onclick="event.stopPropagation();editBooking('${b.id}')">✏️</button>
+          <button class="a-bell" title="تذكير بإشعار" onclick="event.stopPropagation();notifyBooking('${b.id}')">🔔</button>
+          ${b.phone ? `<button class="a-wa" title="تذكير واتساب" onclick="event.stopPropagation();sendWhatsApp('${b.id}')">💬</button>` : ''}
+          <button class="a-del" title="حذف" onclick="event.stopPropagation();deleteBooking('${b.id}')">🗑</button>
         </div>
       </td>
     </tr>`;
@@ -1935,6 +2024,328 @@ async function removeFixedExpense(id) {
   renderFixedExpenses();
 }
 
+/* ---------- كتالوج الإضافات (الإعدادات) ---------- */
+
+// نص نوع الإضافة للعرض
+const ADDON_TYPE_LABEL = { fixed: 'ثابتة', hourly: 'بالساعة' };
+
+// حفظ كتالوج الإضافات في قاعدة البيانات
+async function persistAddons() {
+  await DB.put('settings', { key: 'addons', value: settings.addons });
+}
+
+// عرض قائمة إدارة الإضافات في الإعدادات (الاسم، النوع، سعر العميل، التكلفة)
+function renderAddons() {
+  const list = $('#addons-list');
+  if (!list) return;
+  const items = settings.addons || [];
+  list.innerHTML = items.length
+    ? items.map((x) => {
+      const cost = Math.max(0, Number(x.costPrice) || 0);
+      const per = x.type === 'hourly' ? '/ساعة' : '';
+      return `
+      <div class="ao-item">
+        <span class="ao-n">
+          ${esc(x.name) || '—'}
+          <span class="ao-type">${ADDON_TYPE_LABEL[x.type] || ADDON_TYPE_LABEL.fixed}</span>
+        </span>
+        <span class="ao-p">${esc(fmtMoney(x.clientPrice))}${per}${cost > 0 ? ` <span class="ao-cost">تكلفة ${esc(fmtMoney(cost))}</span>` : ''}</span>
+        <button class="icon-btn" onclick="removeAddon('${esc(x.id)}')">🗑</button>
+      </div>`;
+    }).join('')
+    : '<p class="hint">لا توجد إضافات بعد.</p>';
+}
+
+// إضافة عنصر إلى كتالوج الإضافات (اسم + سعر العميل + تكلفة اختيارية + نوع)
+async function addAddon() {
+  const name = $('#ao-name').value.trim();
+  const clientPrice = Math.max(0, Number($('#ao-client').value) || 0);
+  const costPrice = Math.max(0, Number($('#ao-cost').value) || 0);
+  const type = $('#ao-type').value === 'hourly' ? 'hourly' : 'fixed';
+  if (!name) { toast('اكتب اسم الإضافة', 'err'); return; }
+  if (clientPrice <= 0) { toast('أدخل سعراً صحيحاً للعميل', 'err'); return; }
+  settings.addons = (settings.addons || []).concat({ id: uid(), name, clientPrice, costPrice, type });
+  await persistAddons();
+  $('#ao-name').value = '';
+  $('#ao-client').value = '';
+  $('#ao-cost').value = '';
+  $('#ao-type').value = 'fixed';
+  renderAddons();
+  refreshFormAddonSelect();   // أبقِ قائمة اختيار النموذج متزامنة مع الكتالوج
+  toast('تمت إضافة الإضافة ✓', 'ok');
+}
+
+// حذف عنصر من كتالوج الإضافات بالمعرّف
+async function removeAddon(id) {
+  settings.addons = (settings.addons || []).filter((x) => x.id !== id);
+  await persistAddons();
+  renderAddons();
+  refreshFormAddonSelect();   // أبقِ قائمة اختيار النموذج متزامنة مع الكتالوج
+}
+
+/* ===================================================== */
+/* ---------- صفحة تفاصيل الحجز + المصروفات المُفصّلة ---------- */
+/* ===================================================== */
+
+/* فتح نافذة التفاصيل لحجز محدّد: ارسم المحتوى ثم اعرض المودال. */
+function openBookingDetails(id) {
+  renderBookingDetails(id);
+  openModal('#booking-details');
+}
+
+/* بناء محتوى نافذة التفاصيل داخل #bd-content من بيانات الحجز والدوال المحسوبة.
+   كل الحسابات تأتي من نفس الدوال المالية (لا تكرار) ⇒ تطابق تام مع القائمة والتقارير. */
+function renderBookingDetails(id) {
+  const box = $('#bd-content');
+  if (!box) return;
+  const b = bookings.find((x) => x.id === id);
+  if (!b) { box.innerHTML = '<p class="hint">تعذّر العثور على الحجز.</p>'; return; }
+
+  const draft = { duration: bookingDuration(b) };   // لحساب الإضافات بالساعة بمدّة هذا الحجز
+
+  // ===== المؤشّرات المالية (تُحسب مرة واحدة عبر الدوال المالية القائمة) =====
+  const price = bookingPrice(b);
+  const discount = bookingDiscount(b);
+  const total = bookingTotal(b);
+  const vat = bookingVat(b);
+  const revenue = bookingRevenue(b);
+  const addonsCost = bookingAddonsCost(b);
+  const legacyExp = Math.max(0, Number(b.expenses) || 0);
+  const expenses = bookingExpenses(b);
+  const net = bookingNet(b);
+  const margin = bookingMargin(b);
+  const paid = bookingPaid(b);
+  const remaining = bookingRemaining(b);
+  const pay = paymentStatus(b);
+  const netCls = net < 0 ? 'neg' : (margin < (Number(settings.lowMarginThreshold) || 0) ? 'low' : 'pos');
+
+  // ===== قسم المعلومات =====
+  const infoRows = [
+    ['الاسم', esc(b.name)],
+    b.phone ? ['الجوال', esc(b.phone)] : null,
+    ['التاريخ', `${esc(b.date)} <span class="bd-muted">(${weekdayName(b.date)})</span>`],
+    ['الوقت', esc(formatTime12(b.time)) || '—'],
+    ['المدة', esc(formatDurationHours(bookingDuration(b)))],
+    ['الباقة', esc(b.package) || '—'],
+    ['الحالة', `<span class="badge ${b.status}">${STATUS_LABEL[b.status] || ''}</span>`],
+    (b.notes && b.notes.trim()) ? ['ملاحظات', esc(b.notes)] : null,
+  ].filter(Boolean);
+  const infoHtml = `<div class="bd-section">
+    <h4 class="bd-title">📋 معلومات الحجز</h4>
+    <div class="bd-info">
+      ${infoRows.map(([k, v]) => `<div class="bd-row"><span class="bd-k">${k}</span><span class="bd-v">${v}</span></div>`).join('')}
+    </div>
+  </div>`;
+
+  // ===== قسم «المتفق عليه» (تفصيل الإجمالي على العميل) =====
+  const agreedLines = [`<div class="bd-row"><span class="bd-k">سعر الباقة</span><span class="bd-v">${esc(fmtMoney(price))}</span></div>`];
+  (b.addons || []).forEach((a) => {
+    const amt = addonClient(a, draft);
+    const cnt = a.type === 'hourly' && (Number(a.count) || 1) > 1 ? ` ×${Number(a.count) || 1}` : '';
+    const per = a.type === 'hourly' ? ' <span class="bd-muted">(بالساعة)</span>' : '';
+    agreedLines.push(`<div class="bd-row"><span class="bd-k">+ ${esc(a.name)}${esc(cnt)}${per}</span><span class="bd-v">${esc(fmtMoney(amt))}</span></div>`);
+  });
+  if (discount > 0) {
+    agreedLines.push(`<div class="bd-row bd-neg"><span class="bd-k">− خصم</span><span class="bd-v">${esc(fmtMoney(discount))}</span></div>`);
+  }
+  agreedLines.push(`<div class="bd-row bd-total"><span class="bd-k">المتفق عليه (الإجمالي)</span><span class="bd-v">${esc(fmtMoney(total))}</span></div>`);
+  if (vat > 0) {
+    agreedLines.push(`<div class="bd-row"><span class="bd-k bd-muted">منها ضريبة (${esc(String(settings.vatRate))}%)</span><span class="bd-v bd-muted">${esc(fmtMoney(vat))}</span></div>`);
+  }
+  const agreedHtml = `<div class="bd-section">
+    <h4 class="bd-title">💰 المتفق عليه</h4>
+    <div class="bd-info">${agreedLines.join('')}</div>
+  </div>`;
+
+  // ===== قسم الإضافات =====
+  const addonsHtml = `<div class="bd-section">
+    <h4 class="bd-title">✨ الإضافات</h4>
+    ${(b.addons || []).length ? `<div class="bd-list">
+      ${(b.addons || []).map((a) => {
+        const amt = addonClient(a, draft);
+        const cost = addonCost(a, draft);
+        const cnt = a.type === 'hourly' ? `<span class="bd-chip">${Number(a.count) || 1} ساعة/كمية</span>` : '';
+        const typeTag = `<span class="bd-chip">${ADDON_TYPE_LABEL[a.type] || ADDON_TYPE_LABEL.fixed}</span>`;
+        return `<div class="bd-line">
+          <span class="bd-line-n">${esc(a.name)} ${typeTag}${cnt}</span>
+          <span class="bd-line-v">${esc(fmtMoney(amt))}${cost > 0 ? ` <span class="bd-muted">تكلفة ${esc(fmtMoney(cost))}</span>` : ''}</span>
+        </div>`;
+      }).join('')}
+    </div>` : '<p class="hint">لا توجد إضافات على هذا الحجز.</p>'}
+  </div>`;
+
+  // ===== قسم المصروفات (المُفصّلة) =====
+  const expRows = [];
+  if (addonsCost > 0) {
+    expRows.push(`<div class="bd-line bd-line-auto">
+      <span class="bd-line-n">تكلفة الإضافات (تلقائي)</span>
+      <span class="bd-line-v">${esc(fmtMoney(addonsCost))}</span>
+    </div>`);
+  }
+  (b.expenseItems || []).forEach((it) => {
+    const amt = Math.max(0, Number(it.amount) || 0);
+    expRows.push(`<div class="bd-line">
+      <span class="bd-line-n">${esc(it.note) || 'مصروف'} <span class="bd-muted">${esc(it.date || '')}</span></span>
+      <span class="bd-line-v">${esc(fmtMoney(amt))}
+        <button type="button" class="icon-btn" title="حذف" onclick="removeExpenseItem('${esc(b.id)}','${esc(it.id)}')">🗑</button>
+      </span>
+    </div>`);
+  });
+  if (legacyExp > 0) {
+    expRows.push(`<div class="bd-line bd-line-auto">
+      <span class="bd-line-n">مصروفات سابقة</span>
+      <span class="bd-line-v">${esc(fmtMoney(legacyExp))}</span>
+    </div>`);
+  }
+  const expHtml = `<div class="bd-section">
+    <h4 class="bd-title">🧾 المصروفات</h4>
+    ${expRows.length ? `<div class="bd-list">${expRows.join('')}</div>` : '<p class="hint">لا توجد مصروفات بعد.</p>'}
+    <div class="bd-exp-add">
+      <input type="number" id="bd-exp-amount" min="0" step="1" placeholder="المبلغ" aria-label="مبلغ المصروف" />
+      <input type="text" id="bd-exp-note" placeholder="ملاحظة (اختياري)" aria-label="ملاحظة المصروف" />
+      <button type="button" class="btn btn-primary btn-sm" onclick="addExpenseItem('${esc(b.id)}')">إضافة مصروف</button>
+    </div>
+    <div class="bd-exp-total">مجموع المصروفات: <b>${esc(fmtMoney(expenses))}</b></div>
+  </div>`;
+
+  // ===== قسم الملخص =====
+  const summaryHtml = `<div class="bd-section">
+    <h4 class="bd-title">📊 الملخص</h4>
+    <div class="bd-summary">
+      <div class="bd-sum-card"><span class="bd-sum-k">الإيراد</span><span class="bd-sum-v">${esc(fmtMoney(revenue))}</span></div>
+      <div class="bd-sum-card ${netCls}"><span class="bd-sum-k">الصافي</span><span class="bd-sum-v">${esc(fmtMoney(net))}</span></div>
+      <div class="bd-sum-card ${netCls}"><span class="bd-sum-k">الهامش</span><span class="bd-sum-v">${margin.toFixed(1)}%</span></div>
+      <div class="bd-sum-card"><span class="bd-sum-k">المدفوع</span><span class="bd-sum-v">${esc(fmtMoney(paid))}</span></div>
+      <div class="bd-sum-card ${remaining > 0 ? 'rem' : ''}"><span class="bd-sum-k">المتبقّي</span><span class="bd-sum-v">${esc(fmtMoney(remaining))}</span></div>
+      <div class="bd-sum-card"><span class="bd-sum-k">حالة الدفع</span><span class="bd-sum-v"><span class="pay-badge ${pay}">${PAY_LABEL[pay]}</span></span></div>
+    </div>
+  </div>`;
+
+  // ===== أزرار الإجراءات =====
+  const actionsHtml = `<div class="bd-actions">
+    <button type="button" class="btn btn-primary" onclick="editBooking('${esc(b.id)}');closeModals();">✏️ تعديل</button>
+    ${b.phone ? `<button type="button" class="btn btn-ghost" onclick="sendWhatsApp('${esc(b.id)}')">💬 واتساب</button>` : ''}
+    <button type="button" class="btn btn-danger" onclick="deleteBooking('${esc(b.id)}').then(()=>{ if(!bookings.find((x)=>x.id==='${esc(b.id)}')) closeModals(); })">🗑 حذف</button>
+  </div>`;
+
+  box.innerHTML = infoHtml + agreedHtml + addonsHtml + expHtml + summaryHtml + actionsHtml;
+}
+
+/* إضافة بند مصروف يدوي لحجز: يُقرأ المبلغ/الملاحظة، يُضاف إلى expenseItems،
+   يُحفظ في قاعدة البيانات، ثم يُعاد تحميل الحجوزات ورسم التفاصيل وتحديث الواجهة. */
+async function addExpenseItem(id) {
+  const b = bookings.find((x) => x.id === id);
+  if (!b) return;
+  const amtEl = $('#bd-exp-amount');
+  const noteEl = $('#bd-exp-note');
+  const amount = Math.max(0, Number(amtEl && amtEl.value) || 0);
+  const note = (noteEl && noteEl.value || '').trim();
+  if (amount <= 0) { toast('أدخل مبلغاً صحيحاً', 'err'); return; }
+  if (!Array.isArray(b.expenseItems)) b.expenseItems = [];
+  b.expenseItems.push({ id: uid(), amount, note, date: todayStr() });
+  await DB.put('bookings', b);
+  await loadBookings();
+  renderBookingDetails(id);
+  refreshAll();
+  toast('تمت إضافة المصروف ✓', 'ok');
+}
+
+/* حذف بند مصروف يدوي من حجز بالمعرّف، ثم الحفظ وإعادة الرسم والتحديث. */
+async function removeExpenseItem(id, itemId) {
+  const b = bookings.find((x) => x.id === id);
+  if (!b || !Array.isArray(b.expenseItems)) return;
+  b.expenseItems = b.expenseItems.filter((x) => x.id !== itemId);
+  await DB.put('bookings', b);
+  await loadBookings();
+  renderBookingDetails(id);
+  refreshAll();
+}
+
+/* ---------- اختيار الإضافات داخل نموذج الحجز ---------- */
+
+/* تعبئة قائمة اختيار الإضافات (#f-addon-select) من كتالوج الإعدادات،
+   وإظهار/إخفاء حقل العدد (#f-addon-count) حسب نوع الإضافة المختارة (يظهر للنوع بالساعة فقط). */
+function refreshFormAddonSelect() {
+  const sel = $('#f-addon-select');
+  if (!sel) return;
+  const items = settings.addons || [];
+  const prev = sel.value;
+  const per = (settings.currency || 'ر.س');
+  sel.innerHTML = '<option value="">— اختر إضافة —</option>' + items.map((a) => {
+    const tag = a.type === 'hourly' ? ' (بالساعة)' : '';
+    const price = (Number(a.clientPrice) || 0).toLocaleString('en-US');
+    return `<option value="${esc(a.id)}">${esc(a.name)}${tag} — ${price} ${esc(per)}${a.type === 'hourly' ? '/س' : ''}</option>`;
+  }).join('');
+  // حافظ على الاختيار السابق إن بقي موجوداً
+  if (prev && items.some((a) => a.id === prev)) sel.value = prev;
+  updateFormAddonCountVisibility();
+}
+
+// إظهار حقل العدد فقط عندما تكون الإضافة المختارة من النوع «بالساعة»
+function updateFormAddonCountVisibility() {
+  const sel = $('#f-addon-select');
+  const cnt = $('#f-addon-count');
+  if (!sel || !cnt) return;
+  const a = (settings.addons || []).find((x) => x.id === sel.value);
+  if (a && a.type === 'hourly') {
+    cnt.hidden = false;
+  } else {
+    cnt.hidden = true;
+    cnt.value = '1';
+  }
+}
+
+/* إضافة الإضافة المختارة حالياً إلى النموذج: تبني لقطة مستقلة من الكتالوج
+   {id,name,type,clientPrice,costPrice,count} ثم تضيفها وتعيد العرض. */
+function addFormAddon() {
+  const sel = $('#f-addon-select');
+  if (!sel) return;
+  const a = (settings.addons || []).find((x) => x.id === sel.value);
+  if (!a) { toast('اختر إضافة أولاً', 'err'); return; }
+  const count = a.type === 'hourly'
+    ? Math.max(1, Math.round(Number($('#f-addon-count').value) || 1))
+    : 1;
+  formAddons = formAddons.concat({
+    id: a.id,
+    name: a.name,
+    type: a.type === 'hourly' ? 'hourly' : 'fixed',
+    clientPrice: Math.max(0, Number(a.clientPrice) || 0),
+    costPrice: Math.max(0, Number(a.costPrice) || 0),
+    count,
+  });
+  // إعادة الضبط للاختيار التالي
+  sel.value = '';
+  updateFormAddonCountVisibility();
+  renderFormAddons();
+}
+
+// حذف إضافة من النموذج بحسب موضعها
+function removeFormAddon(idx) {
+  formAddons = formAddons.filter((_, i) => i !== Number(idx));
+  renderFormAddons();
+}
+
+/* عرض قائمة الإضافات المختارة في النموذج مع المبلغ المحسوب على العميل
+   (عبر addonClient باستخدام المدة الحالية)، وتحديث سطري المتبقّي/الصافي. */
+function renderFormAddons() {
+  const box = $('#f-addons-chosen');
+  if (box) {
+    const draft = { duration: durationFieldMinutes() };   // المدة الحالية لحساب النوع بالساعة
+    box.innerHTML = formAddons.map((a, i) => {
+      const amount = addonClient(a, draft);
+      const cntTxt = a.type === 'hourly' && (Number(a.count) || 1) > 1 ? ` ×${Number(a.count) || 1}` : '';
+      const typeTag = a.type === 'hourly' ? '<span class="fa-type">بالساعة</span>' : '';
+      return `<div class="fa-item">
+        <span class="fa-n">${esc(a.name)}${typeTag}${cntTxt ? `<span class="fa-type">${esc(cntTxt.trim())}</span>` : ''}</span>
+        <span class="fa-amt">${esc(fmtMoney(amount))}</span>
+        <button type="button" class="icon-btn" title="حذف" onclick="removeFormAddon(${i})">🗑</button>
+      </div>`;
+    }).join('');
+  }
+  // الإضافات تؤثّر على الإجمالي/الصافي ⇒ حدّث السطرين الحيّين
+  updateRemainingLine();
+}
+
 function download(filename, content, type) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -1951,11 +2362,11 @@ function exportJSON() {
 }
 
 function exportCSV() {
-  const headers = ['الاسم', 'الجوال', 'التاريخ', 'اليوم', 'الوقت', 'الباقة', 'السعر', 'الخصم', 'الضريبة', 'المصروفات', 'الصافي', 'الهامش%', 'المدفوع', 'المتبقّي', 'المدة (ساعات)', 'حالة الدفع', 'الحالة', 'ملاحظات'];
+  const headers = ['الاسم', 'الجوال', 'التاريخ', 'اليوم', 'الوقت', 'الباقة', 'السعر', 'الإضافات (على العميل)', 'الخصم', 'الإجمالي', 'الضريبة', 'المصروفات', 'الصافي', 'الهامش%', 'المدفوع', 'المتبقّي', 'المدة (ساعات)', 'حالة الدفع', 'الحالة', 'ملاحظات'];
   const lines = bookings
     .slice()
     .sort((a, b) => ((a.date || '') + (a.time || '')).localeCompare((b.date || '') + (b.time || '')))
-    .map((b) => [b.name, b.phone, b.date, weekdayName(b.date), b.time, b.package, bookingPrice(b), bookingDiscount(b), Math.round(bookingVat(b)), bookingExpenses(b), Math.round(bookingNet(b)), bookingMargin(b).toFixed(1), bookingPaid(b), bookingRemaining(b), bookingDuration(b) / 60, PAY_LABEL[paymentStatus(b)] || '', STATUS_LABEL[b.status] || '', b.notes]
+    .map((b) => [b.name, b.phone, b.date, weekdayName(b.date), b.time, b.package, bookingPrice(b), Math.round(bookingAddonsClient(b)), bookingDiscount(b), bookingTotal(b), Math.round(bookingVat(b)), bookingExpenses(b), Math.round(bookingNet(b)), bookingMargin(b).toFixed(1), bookingPaid(b), bookingRemaining(b), bookingDuration(b) / 60, PAY_LABEL[paymentStatus(b)] || '', STATUS_LABEL[b.status] || '', b.notes]
       .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
   // BOM لضمان ظهور العربية في Excel
   const csv = '﻿' + headers.join(',') + '\n' + lines.join('\n');
@@ -2042,6 +2453,12 @@ window.sendWhatsApp = sendWhatsApp;
 window.removePackage = removePackage;
 window.notifyBooking = notifyBooking;
 window.removeFixedExpense = removeFixedExpense;
+window.removeAddon = removeAddon;
+window.removeFormAddon = removeFormAddon;
+window.openBookingDetails = openBookingDetails;
+window.renderBookingDetails = renderBookingDetails;
+window.addExpenseItem = addExpenseItem;
+window.removeExpenseItem = removeExpenseItem;
 
 /* انطلاق */
 init().catch((err) => {

@@ -212,6 +212,13 @@ small { font-size: .7em; font-weight: 500; }
 .bookings-table td { padding: 12px 10px; border-bottom: 1px solid var(--border); font-size: 14px; vertical-align: middle; }
 .bookings-table tbody tr { transition: background .12s; }
 .bookings-table tbody tr:hover { background: #faf9ff; }
+/* زر فتح تفاصيل الحجز من خلية الاسم (يبدو كنص قابل للنقر) */
+.cell-open {
+  display: block; width: 100%; text-align: start;
+  background: none; border: none; padding: 0; margin: 0;
+  font-family: inherit; color: inherit; cursor: pointer;
+}
+.cell-open:hover .cell-name { color: var(--primary-d); text-decoration: underline; }
 .cell-name { font-weight: 600; }
 .cell-sub { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
 .col-actions { width: 1%; }
@@ -496,6 +503,117 @@ tr.cancelled .cell-name { text-decoration: line-through; }
 .fixed-exp-total:empty { display: none; }
 .fixed-exp-total b { font-weight: 700; }
 
+/* ===== كتالوج الإضافات (الإعدادات) ===== */
+.addons-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.ao-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: var(--bg); border-radius: 10px;
+}
+.ao-item .ao-n { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ao-item .ao-type {
+  font-size: 11px; font-weight: 700; color: var(--primary-d);
+  background: var(--primary-l); border-radius: 6px; padding: 1px 7px; margin-inline-start: 6px;
+}
+.ao-item .ao-p { color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; text-align: end; }
+.ao-item .ao-cost { color: var(--muted); font-size: 12px; font-weight: 500; }
+.ao-add { display: grid; grid-template-columns: 1fr 120px 120px 100px auto; gap: 8px; align-items: center; }
+.ao-add input, .ao-add select { font-family: inherit; padding: 9px 11px; border: 1.5px solid var(--border); border-radius: 9px; background: #fbfbfe; }
+.ao-add input:focus, .ao-add select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-l); }
+
+/* ===== اختيار الإضافات داخل نموذج الحجز ===== */
+.form-addons { margin-bottom: 14px; }
+.form-addons-label { display: block; font-size: 13px; font-weight: 600; color: #4b4f63; margin-bottom: 6px; }
+.fa-add { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+.fa-add select, .fa-add input {
+  font-family: inherit; padding: 9px 11px; border: 1.5px solid var(--border);
+  border-radius: 9px; background: #fbfbfe; min-width: 0;
+}
+.fa-add #f-addon-count { width: 80px; }
+.fa-add select:focus, .fa-add input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-l); }
+.fa-chosen { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.fa-chosen:empty { display: none; }
+.fa-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: var(--bg); border-radius: 10px;
+}
+.fa-item .fa-n { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fa-item .fa-n .fa-type {
+  font-size: 11px; font-weight: 700; color: var(--primary-d);
+  background: var(--primary-l); border-radius: 6px; padding: 1px 7px; margin-inline-start: 6px;
+}
+.fa-item .fa-amt { color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
+
+/* ===== نافذة تفاصيل الحجز ===== */
+.bd-section { margin-bottom: 18px; }
+.bd-section:last-child { margin-bottom: 0; }
+.bd-title { font-size: 15px; margin: 0 0 10px; color: var(--text); }
+.bd-muted { color: var(--muted); font-weight: 500; font-size: .92em; }
+
+/* صفوف المعلومات و«المتفق عليه» */
+.bd-info { display: flex; flex-direction: column; gap: 2px; }
+.bd-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 7px 12px; border-radius: 9px;
+}
+.bd-row:nth-child(odd) { background: var(--bg); }
+.bd-row .bd-k { color: #4b4f63; font-weight: 600; font-size: 13.5px; min-width: 0; }
+.bd-row .bd-v { font-weight: 700; font-size: 14px; white-space: nowrap; text-align: end; }
+.bd-row.bd-neg .bd-v { color: var(--danger); }
+.bd-row.bd-total {
+  background: var(--primary-l); margin-top: 4px;
+  border: 1.5px solid var(--border);
+}
+.bd-row.bd-total .bd-k { color: var(--primary-d); }
+.bd-row.bd-total .bd-v { color: var(--primary-d); }
+
+/* قوائم الإضافات/المصروفات داخل التفاصيل */
+.bd-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.bd-line {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 12px; background: var(--bg); border-radius: 10px;
+}
+.bd-line-auto { background: #f6f5fc; border: 1px dashed var(--border); }
+.bd-line .bd-line-n { font-weight: 600; font-size: 13.5px; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bd-line .bd-line-v { color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.bd-chip {
+  font-size: 11px; font-weight: 700; color: var(--primary-d);
+  background: var(--primary-l); border-radius: 6px; padding: 1px 7px;
+}
+
+/* نموذج إضافة مصروف ومجموع المصروفات */
+.bd-exp-add { display: grid; grid-template-columns: 120px 1fr auto; gap: 8px; margin-bottom: 10px; }
+.bd-exp-add input {
+  font-family: inherit; padding: 9px 11px; border: 1.5px solid var(--border);
+  border-radius: 9px; background: #fbfbfe; min-width: 0;
+}
+.bd-exp-add input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-l); }
+.bd-exp-total {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  background: var(--bg); border-radius: 10px; padding: 9px 13px;
+}
+.bd-exp-total b { font-weight: 700; }
+
+/* بطاقات الملخص */
+.bd-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.bd-sum-card {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 11px 13px; background: var(--bg); border-radius: 12px;
+  border: 1.5px solid var(--border);
+}
+.bd-sum-card .bd-sum-k { font-size: 12px; font-weight: 600; color: var(--muted); }
+.bd-sum-card .bd-sum-v { font-size: 16px; font-weight: 700; color: var(--text); }
+.bd-sum-card.pos { background: #dcfce7; border-color: #86efac; }
+.bd-sum-card.pos .bd-sum-v { color: #15803d; }
+.bd-sum-card.low { background: var(--warn-bg); border-color: var(--warn-bd); }
+.bd-sum-card.low .bd-sum-v { color: var(--warn-tx); }
+.bd-sum-card.neg { background: var(--danger-bg); border-color: var(--danger); }
+.bd-sum-card.neg .bd-sum-v { color: #b91c1c; }
+.bd-sum-card.rem .bd-sum-v { color: var(--danger); }
+
+/* أزرار إجراءات التفاصيل */
+.bd-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.bd-actions .btn { flex: 1; min-width: 120px; }
+
 /* ===== ساعات العمل (الإعدادات) ===== */
 .workdays { display: flex; flex-wrap: wrap; gap: 6px; }
 .workdays .wd {
@@ -750,6 +868,15 @@ tr.cancelled .cell-name { text-decoration: line-through; }
   .brand-sub { display: none; }
   .stat-value { font-size: 23px; }
   .topbar-actions .btn { padding: 8px 10px; font-size: 13px; }
+  /* نموذج إضافة الإضافات: عمودان على الجوال لتفادي التزاحم */
+  .ao-add { grid-template-columns: 1fr 1fr; }
+  .ao-add #ao-name { grid-column: 1 / -1; }
+  .ao-add #ao-add-btn { grid-column: 1 / -1; }
+  /* تفاصيل الحجز على الجوال: بطاقتان للملخص ونموذج المصروف بعمود واحد */
+  .bd-summary { grid-template-columns: repeat(2, 1fr); }
+  .bd-exp-add { grid-template-columns: 1fr 1fr; }
+  .bd-exp-add input[type="text"] { grid-column: 1 / -1; }
+  .bd-exp-add .btn { grid-column: 1 / -1; }
 }
 
 /* ===== الطباعة ===== */

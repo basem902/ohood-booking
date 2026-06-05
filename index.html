@@ -120,16 +120,20 @@
               <span>خصم</span>
               <input type="number" id="f-discount" min="0" step="1" placeholder="0" />
             </label>
-            <label class="field field-narrow">
-              <span>مصروفات الحجز</span>
-              <input type="number" id="f-expenses" min="0" step="1" placeholder="0" />
-            </label>
           </div>
 
-          <label class="field">
-            <span>تفصيل المصروفات (اختياري)</span>
-            <input type="text" id="f-expense-note" placeholder="مثال: مستلزمات، مواصلات..." />
-          </label>
+          <!-- الإضافات: تُختار من كتالوج الإعدادات وتُضاف لقيمة الحجز -->
+          <div class="form-addons">
+            <span class="form-addons-label">الإضافات</span>
+            <div class="fa-add">
+              <select id="f-addon-select" aria-label="اختر إضافة">
+                <option value="">— اختر إضافة —</option>
+              </select>
+              <input type="number" id="f-addon-count" min="1" step="1" value="1" placeholder="العدد" aria-label="عدد الساعات/الكمية" hidden />
+              <button type="button" class="btn btn-primary btn-sm" id="f-addon-add">أضف</button>
+            </div>
+            <div id="f-addons-chosen" class="fa-chosen"></div>
+          </div>
 
           <div id="f-remaining-line" class="remaining-line" hidden></div>
           <div id="f-net-line" class="net-line" hidden></div>
@@ -333,6 +337,21 @@
         <div id="fixed-exp-total" class="fixed-exp-total"></div>
 
         <hr />
+        <h4>الإضافات</h4>
+        <p class="hint">خدمات إضافية تُضاف لقيمة الحجز (تصوير، ضيافة...). «بالساعة» تُحتسب حسب مدة الحجز. التكلفة اختيارية وتُخصم من الربح.</p>
+        <div id="addons-list" class="addons-list"></div>
+        <div class="ao-add">
+          <input type="text" id="ao-name" placeholder="اسم الإضافة" />
+          <input type="number" id="ao-client" placeholder="السعر على العميل" min="0" step="1" />
+          <input type="number" id="ao-cost" placeholder="التكلفة (اختياري)" min="0" step="1" />
+          <select id="ao-type" aria-label="نوع الإضافة">
+            <option value="fixed">ثابتة</option>
+            <option value="hourly">بالساعة</option>
+          </select>
+          <button class="btn btn-primary btn-sm" id="ao-add-btn">إضافة</button>
+        </div>
+
+        <hr />
         <h4>الأهداف الشهرية</h4>
         <p class="hint">تُستخدم لقياس تقدّمك في التقارير (اتركها 0 لتعطيلها).</p>
         <div class="field-row">
@@ -409,6 +428,20 @@
         </div>
         <!-- لوحة المؤشرات ومحتوى التقرير يُبنى ديناميكياً -->
         <div id="report-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== نافذة تفاصيل الحجز (مع المصروفات المُفصّلة) ====== -->
+  <div class="modal" id="booking-details" hidden>
+    <div class="modal-box modal-box-wide">
+      <div class="modal-head">
+        <h3>🧾 تفاصيل الحجز</h3>
+        <button class="icon-btn" data-close-modal>✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- يُملأ ديناميكياً عبر renderBookingDetails(id) -->
+        <div id="bd-content"></div>
       </div>
     </div>
   </div>
